@@ -1,20 +1,26 @@
 // ============================================================================
-// api.js  ·  Verbindung zu den Edge Functions (SPEC 4, 7, 8)
+// api.js  ·  Verbindung zu den Edge Functions (SPEC 4, 7, 8, 12, 13.3.9)
 // ----------------------------------------------------------------------------
-// Exporte laut Vertrag (SPEC 8):
-//   anmelden(passcode, rolle)  frage(text, onEreignis) → Promise<letztesEreignis>
-//   aktion(action, payload)    notiz(schritt, daten)    ladeBild(id)   sitzung()
-// dazu: abmelden(), aktuelleSitzung(), leseNdjson(), istMock, ApiFehler.
+// Bestehend (Vertrag SPEC 8, unverändert):
+//   anmelden(passcode, rolle)  sitzung()  abmelden()  aktuelleSitzung()
+//   frage(text, onEreignis) → Promise<letztesEreignis>   leseNdjson()
+//   aktion(action, payload)    notiz(schritt, daten)    ladeBild(id)
+//   istMock, ApiFehler
+// Neu (SPEC 13.3.9): einrichtung, einrichtungFarben, einrichtungSpeichern,
+//   akte, quelle, ladeSeitenbild, beitraege, einsatzListen, einsatz,
+//   freigaben, freigabe, handbuecher, handbuch, roh, rechteFuer.
+// Neu (SPEC 14.3.14): frage(text, onEreignis, { anlage_id }) – Body bekommt
+//   anlage_id nur, wenn gesetzt; akteListe() → GET akte?liste=1 (Fallsuche).
+// anmelden/sitzung liefern zusätzlich `rechte` (vom Server; ein alter Server
+// ohne das Feld bekommt dieselbe Tabelle aus rechteFuer()).
 //
 // Mit ?mock=1 laufen dieselben Funktionen offline gegen web/mock/. Der Mock
 // ersetzt NUR den Transport (fetch) – Kopfzeilen, Fehlerbehandlung, Sitzung
-// und vor allem der NDJSON-Leser sind derselbe Code wie im Echtbetrieb. Sonst
-// prüft der Offline-Lauf etwas anderes als das, was in der Demo läuft.
+// und der NDJSON-Leser sind derselbe Code wie im Echtbetrieb. Sonst prüft der
+// Offline-Lauf etwas anderes als das, was in der Demo läuft.
 //
 // Die Sitzung liegt in sessionStorage, nicht localStorage: pro Fenster eine
-// eigene. Zwei Fenster mit zwei Rollen sind ein geplanter Teil der Demo
-// (Plan Pos. 6, „Kundenbetreuer gegen Techniker“) – mit localStorage würde
-// das zweite Login das erste überschreiben.
+// eigene. Zwei Fenster mit zwei Rollen sind ein geplanter Teil der Demo.
 // ============================================================================
 import { PUBLISHABLE_KEY, SUPABASE_URL } from "./config.js";
 
@@ -31,8 +37,7 @@ const SPEICHER = istMock ? "wa.sitzung.mock" : "wa.sitzung";
 /**
  * So lange darf der Strom von `frage` schweigen, bevor wir abbrechen.
  * Der Server schickt alle 5 s ein `puls` (SPEC 4); 25 s Stille heißt also
- * sicher „Verbindung tot“ und nicht „Modell denkt noch“. Ohne diese Grenze
- * hinge die Fortschrittsspur bei einer toten Mobilfunkverbindung ewig.
+ * sicher „Verbindung tot“ und nicht „Modell denkt noch“.
  */
 const STILLE_MAX_MS = 25000;
 
@@ -44,6 +49,40 @@ export class ApiFehler extends Error {
     this.status = status || 0;
     this.inhalt = inhalt || null;
   }
+}
+
+// --- Rechte (SPEC 13.2.1) ----------------------------------------------------
+
+const RANG = { kundenbetreuer: 1, standortleiter: 1, techniker: 2, meister: 3, ingenieur: 3 };
+const RECHTE_NAMEN = ["erfahrung", "einsatz", "freigabe", "handbuch", "einrichtung", "modus_wahl"];
+
+/**
+ * Dieselbe Tabelle wie _shared/rollen.ts rechteFuer() – nur für einen Server,
+ * der `rechte` noch nicht mitschickt. Entscheiden tut immer der Server; hier
+ * geht es nur darum, keine Knöpfe zu zeigen, die mit 403 enden.
+ */
+export function rechteFuer(rolle, istAdmin) {
+  const r = RANG[rolle] || 0;
+  const admin = !!istAdmin;
+  return {
+    erfahrung: r >= 1,
+    einsatz: r >= 2,
+    freigabe: r >= 3 || admin,
+    handbuch: r >= 3 || admin,
+    einrichtung: admin,
+    modus_wahl: r >= 2,
+  };
+}
+
+function rechteLesen(roh, rolle, istAdmin) {
+  if (roh && typeof roh === "object") {
+    const r = {};
+    RECHTE_NAMEN.forEach(function (n) {
+      r[n] = roh[n] === true;
+    });
+    return r;
+  }
+  return rechteFuer(rolle, istAdmin);
 }
 
 // --- Sitzung -----------------------------------------------------------------
@@ -69,7 +108,7 @@ function speichereSitzung(info) {
   try {
     window.sessionStorage.setItem(SPEICHER, JSON.stringify(info));
   } catch (e) {
-    // siehe oben: dann eben nur im Speicher
+    // dann eben nur im Speicher
   }
 }
 
@@ -93,13 +132,16 @@ function normalisiere(roh, alt) {
   const z = r.zugang || {};
   const a = alt || {};
   const rollen = r.rollen || z.rollen || a.rollen;
+  const rolle = r.rolle || s.rolle || a.rolle || "";
+  const istAdmin = !!(r.ist_admin || z.ist_admin || a.ist_admin);
   return {
     token: r.token || a.token || null,
-    rolle: r.rolle || s.rolle || a.rolle || "",
+    rolle: rolle,
     anzeigename: r.anzeigename || z.anzeigename || a.anzeigename || "",
     rollen: Array.isArray(rollen) ? rollen : [],
     gueltig_bis: r.gueltig_bis || z.gueltig_bis || a.gueltig_bis || null,
-    ist_admin: !!(r.ist_admin || z.ist_admin || a.ist_admin),
+    ist_admin: istAdmin,
+    rechte: rechteLesen(r.rechte || null, rolle, istAdmin),
     // Laufender Fall nach einem Reload (GET anmelden); beim Anmelden gibt es keinen.
     fall: r.fall && r.fall.anlage_id
       ? { anlage_id: String(r.fall.anlage_id), kunde_alias: r.fall.kunde_alias ? String(r.fall.kunde_alias) : "" }
@@ -110,7 +152,9 @@ function normalisiere(roh, alt) {
 /** Die Sitzung dieses Fensters ohne Netzanfrage (oder null). */
 export function aktuelleSitzung() {
   const s = gespeicherteSitzung();
-  return s && s.token ? s : null;
+  if (!s || !s.token) return null;
+  if (!s.rechte) s.rechte = rechteFuer(s.rolle, s.ist_admin);
+  return s;
 }
 
 // --- Transport ---------------------------------------------------------------
@@ -119,6 +163,10 @@ let mockLader = null;
 function mockModul() {
   if (!mockLader) mockLader = import("./mock/mock.js");
   return mockLader;
+}
+
+function basisUrl() {
+  return SUPABASE_URL.replace(/\/+$/, "") + "/functions/v1/";
 }
 
 async function senden(pfad, init) {
@@ -132,7 +180,7 @@ async function senden(pfad, init) {
       "config.js ist noch nicht ausgefüllt (SUPABASE_URL, PUBLISHABLE_KEY). Für einen Offline-Test ?mock=1 an die Adresse hängen.",
     );
   }
-  return fetch(SUPABASE_URL.replace(/\/+$/, "") + "/functions/v1/" + pfad, init);
+  return fetch(basisUrl() + pfad, init);
 }
 
 /**
@@ -186,6 +234,8 @@ function fehlerText(status, inhalt) {
   if (vomServer) return vomServer;
   if (status === 401) return "Die Sitzung ist abgelaufen oder ungültig. Bitte neu anmelden.";
   if (status === 403) return "Diese Aktion ist für deine Rolle oder von dieser Adresse aus nicht freigegeben.";
+  if (status === 404) return "Nicht gefunden.";
+  if (status === 413) return "Die Anfrage ist zu groß.";
   if (status === 429) return "Das Kontingent für heute ist aufgebraucht.";
   if (status >= 500) return "Der Server hat einen Fehler gemeldet. Bitte gleich noch einmal versuchen.";
   return "Die Anfrage wurde abgelehnt (HTTP " + status + ").";
@@ -195,12 +245,25 @@ function fehlerCode(status, inhalt) {
   if (inhalt && typeof inhalt.code === "string") return inhalt.code;
   if (status === 401) return "sitzung";
   if (status === 403) return "verboten";
+  if (status === 404) return "nicht_gefunden";
   if (status === 429) return "deckel";
   if (status >= 500) return "server";
   return "http";
 }
 
 const NETZFEHLER = "Keine Verbindung zum Server. Bitte Netz prüfen und erneut versuchen.";
+
+function queryText(query) {
+  if (!query) return "";
+  if (typeof query === "string") return query.charAt(0) === "?" ? query : "?" + query;
+  const teile = [];
+  Object.keys(query).forEach(function (k) {
+    const v = query[k];
+    if (v === null || v === undefined || v === "") return;
+    teile.push(encodeURIComponent(k) + "=" + encodeURIComponent(String(v)));
+  });
+  return teile.length ? "?" + teile.join("&") : "";
+}
 
 async function jsonAnfrage(pfad, methode, daten) {
   let antwort;
@@ -222,19 +285,24 @@ async function jsonAnfrage(pfad, methode, daten) {
   return inhalt || {};
 }
 
+/** JSON-Anfrage, bei der auch {ok:false} mit 200 als Fehler gilt. */
+async function jsonOk(pfad, methode, daten, standardText) {
+  const inhalt = await jsonAnfrage(pfad, methode, daten);
+  if (inhalt && inhalt.ok === false) {
+    throw new ApiFehler(inhalt.code || "fehler", serverText(inhalt) || standardText || "Nicht ausgeführt.", 200, inhalt);
+  }
+  return inhalt;
+}
+
 // --- Anmelden ----------------------------------------------------------------
 
 /**
  * Zwei Schritte: erst nur der Passcode, dann – wenn der Zugang mehrere
- * Rollen hat – die Rolle (SPEC 8, „Rollenwahl nach erstem Schritt“).
+ * Rollen hat – die Rolle (SPEC 8).
  *
  * Rückgabe:
- *   { angemeldet: true,  token, rolle, anzeigename, rollen, gueltig_bis, ist_admin }
+ *   { angemeldet: true,  token, rolle, anzeigename, rollen, gueltig_bis, ist_admin, rechte, fall }
  *   { angemeldet: false, rollen, anzeigename }   → Rolle wählen, dann erneut
- *
- * Ohne Rolle darf der Server die Rollen mit 200 (ohne token) liefern oder mit
- * einem Fehlerstatus, solange `rollen` im Inhalt steht. Hat der Zugang nur
- * eine Rolle, darf er sofort eine Sitzung anlegen.
  */
 export async function anmelden(passcode, rolle) {
   const daten = { passcode: String(passcode || "") };
@@ -247,15 +315,17 @@ export async function anmelden(passcode, rolle) {
       return { angemeldet: false, rollen: e.inhalt.rollen, anzeigename: e.inhalt.anzeigename || "" };
     }
     if (e.status === 401) {
-      // Gleiche Meldung für unbekannt und abgelaufen (SPEC 7) – kein Hinweis,
-      // welcher Passcode „fast“ stimmt.
+      // Gleiche Meldung für unbekannt und abgelaufen (SPEC 7).
       throw new ApiFehler("passcode", "Passcode unbekannt oder abgelaufen.", 401);
     }
     throw e;
   }
   if (inhalt.token) {
     const info = normalisiere(inhalt, null);
-    if (!info.rolle && rolle) info.rolle = rolle;
+    if (!info.rolle && rolle) {
+      info.rolle = rolle;
+      if (!inhalt.rechte) info.rechte = rechteFuer(rolle, info.ist_admin);
+    }
     speichereSitzung(info);
     return Object.assign({ angemeldet: true }, info);
   }
@@ -287,18 +357,17 @@ export async function sitzung() {
   }
 }
 
-/**
- * Abmelden. Der Server kennt keinen Abmelde-Endpunkt (SPEC 7); die Sitzung
- * verfällt dort nach 12 h ohne Aktivität. Hier wird sie sofort vergessen.
- */
+/** Abmelden: Der Server kennt keinen Abmelde-Endpunkt (SPEC 7). */
 export function abmelden() {
   sitzungVergessen();
-  bildCache.forEach(function (versprechen) {
-    versprechen.then(function (url) {
-      if (url && url.indexOf("blob:") === 0) URL.revokeObjectURL(url);
-    }, function () {});
+  [bildCache, seitenCache].forEach(function (cache) {
+    cache.forEach(function (versprechen) {
+      versprechen.then(function (url) {
+        if (url && url.indexOf("blob:") === 0) URL.revokeObjectURL(url);
+      }, function () {});
+    });
+    cache.clear();
   });
-  bildCache.clear();
 }
 
 // --- NDJSON ------------------------------------------------------------------
@@ -306,17 +375,12 @@ export function abmelden() {
 /**
  * NDJSON lesen: Bytes kommen in beliebigen Stücken, eine Zeile kann über
  * mehrere Stücke verteilt sein und ein Umlaut mitten in der Bytefolge
- * zerschnitten. Deshalb TextDecoder im stream-Modus und ein Zeilenpuffer;
- * erst eine vollständige Zeile wird weitergegeben.
- *
- * beiDaten() läuft bei jedem Stück – auch ohne vollständige Zeile – und hält
- * den Stille-Wächter wach.
+ * zerschnitten. Deshalb TextDecoder im stream-Modus und ein Zeilenpuffer.
+ * beiDaten() läuft bei jedem Stück und hält den Stille-Wächter wach.
  */
 export async function leseNdjson(antwort, proZeile, beiDaten) {
   const melden = typeof beiDaten === "function" ? beiDaten : function () {};
   if (!antwort.body || typeof antwort.body.getReader !== "function") {
-    // Ohne lesbaren Strom (sehr alte Browser): alles auf einmal. Dann gibt es
-    // keine Vorab-Stufe, aber eine vollständige Antwort.
     const text = await antwort.text();
     melden();
     text.split("\n").forEach(function (z) {
@@ -351,20 +415,25 @@ export async function leseNdjson(antwort, proZeile, beiDaten) {
 const BEKANNTE_EREIGNISSE = { fortschritt: 1, vorab: 1, antwort: 1, fehler: 1, puls: 1 };
 
 /**
- * Frage stellen. onEreignis bekommt jedes Ereignis aus dem Strom
- * (fortschritt, vorab, antwort, fehler, puls). Das Versprechen löst immer
- * auf – nie mit Ausnahme – und zwar mit dem letzten Ereignis: `antwort` oder
- * `fehler`. Bricht die Verbindung ohne eines von beiden ab, wird ein
- * `fehler` erzeugt, damit die Oberfläche nie in „läuft …“ hängen bleibt.
+ * Frage stellen. onEreignis bekommt jedes Ereignis aus dem Strom. Das
+ * Versprechen löst immer auf – nie mit Ausnahme – und zwar mit dem letzten
+ * Ereignis: `antwort` oder `fehler`. Bricht die Verbindung ohne eines von
+ * beiden ab, wird ein `fehler` erzeugt, damit die Oberfläche nie hängt.
  */
-export async function frage(text, onEreignis) {
+export async function frage(text, onEreignis, optionen) {
+  // anlage_id (SPEC 14.2.7): Anlage aus der Fallsuche oder der Auswahl –
+  // „diese Anlage, falls der Text keine nennt“. Nur mitschicken, wenn gesetzt,
+  // damit ein alter Server dasselbe Body sieht wie bisher.
+  const o = optionen || {};
+  const body = { text: String(text) };
+  const anlageId = typeof o.anlage_id === "string" ? o.anlage_id.trim().toUpperCase() : "";
+  if (/^A-\d{4}$/.test(anlageId)) body.anlage_id = anlageId;
   const melde = function (ev) {
     if (typeof onEreignis !== "function") return;
     try {
       onEreignis(ev);
     } catch (e) {
-      // Ein Fehler beim Darstellen darf das Lesen des Stroms nicht beenden –
-      // sonst fehlt am Ende die eigentliche Antwort.
+      // Ein Fehler beim Darstellen darf das Lesen des Stroms nicht beenden.
       console.error("Ereignis „" + (ev && ev.t) + "“ konnte nicht dargestellt werden:", e);
     }
   };
@@ -385,7 +454,7 @@ export async function frage(text, onEreignis) {
     const antwort = await senden("frage", {
       method: "POST",
       headers: kopfzeilen(true),
-      body: JSON.stringify({ text: String(text) }),
+      body: JSON.stringify(body),
       signal: steuerung ? steuerung.signal : undefined,
       cache: "no-store",
     });
@@ -424,7 +493,7 @@ export async function frage(text, onEreignis) {
         letztes = {
           t: "fehler",
           code: "zeit",
-          text: "Seit " + Math.round(STILLE_MAX_MS / 1000) + " s kam nichts mehr vom Server. Bitte erneut senden.",
+          text: "Seit " + Math.round(STILLE_MAX_MS / 1000) + " s kam nichts mehr vom Server. Bitte erneut senden.",
         };
       } else if (e instanceof ApiFehler) {
         letztes = { t: "fehler", code: e.code, text: e.message };
@@ -447,62 +516,180 @@ export async function frage(text, onEreignis) {
   return letztes;
 }
 
-// --- Aktion, Notiz, Bild -----------------------------------------------------
+// --- Aktion, Notiz -------------------------------------------------------------
 
 /** Aktion ausführen → { ok, bestaetigung: Block }. Wirft ApiFehler. */
 export async function aktion(action, payload) {
-  const inhalt = await jsonAnfrage("aktion", "POST", { action: action, payload: payload || {} });
-  if (inhalt.ok === false) {
-    throw new ApiFehler(inhalt.code || "aktion", serverText(inhalt) || "Aktion nicht ausgeführt.", 200, inhalt);
-  }
-  return inhalt;
+  return jsonOk("aktion", "POST", { action: action, payload: payload || {} }, "Aktion nicht ausgeführt.");
 }
 
 /**
- * Wissen erfassen (nur Rolle Meister, SPEC 7):
- *   notiz('strukturieren', { text })            → Karte
- *   notiz('freigeben', { notiz: {...}, quelle }) → { kuerzel }
+ * Wissen festhalten (SPEC 7, 13.2.2):
+ *   notiz('strukturieren', { text })                 → { ok, karte }
+ *   notiz('einreichen', { notiz: {...}, quelle })    → { ok, status, id, kuerzel, notiz, text }
+ *   notiz('freigeben', { notiz: {...}, quelle })     → { ok, kuerzel, ... } (alter Weg, nur Meister)
  */
 export async function notiz(schritt, daten) {
-  const inhalt = await jsonAnfrage("notiz", "POST", Object.assign({ schritt: schritt }, daten || {}));
-  if (inhalt.ok === false) {
-    throw new ApiFehler(inhalt.code || "notiz", serverText(inhalt) || "Notiz nicht verarbeitet.", 200, inhalt);
-  }
-  return inhalt;
+  return jsonOk("notiz", "POST", Object.assign({ schritt: schritt }, daten || {}), "Notiz nicht verarbeitet.");
+}
+
+/** Eigene Beiträge des Zugangs (GET notiz) → { ok, beitraege }. */
+export async function beitraege() {
+  return jsonOk("notiz", "GET", undefined, "Beiträge nicht geladen.");
+}
+
+// --- Einrichtung (Branding) ----------------------------------------------------
+
+/** GET einrichtung – ohne Sitzung (die Login-Seite braucht das Branding). */
+export async function einrichtung() {
+  return jsonOk("einrichtung", "GET", undefined, "Einrichtung nicht geladen.");
+}
+
+/** GET einrichtung?farbe=#RRGGBB → { ok, farben } für die Live-Vorschau (speichert nichts). */
+export async function einrichtungFarben(hex) {
+  return jsonOk("einrichtung" + queryText({ farbe: String(hex || "") }), "GET", undefined, "Farbe nicht berechnet.");
+}
+
+/** POST einrichtung (nur Admin) → { ok, branding, farben }. */
+export async function einrichtungSpeichern(daten) {
+  return jsonOk("einrichtung", "POST", daten || {}, "Einrichtung nicht gespeichert.");
+}
+
+// --- Akte, Quelle ----------------------------------------------------------------
+
+export async function akte(anlageId) {
+  return jsonOk("akte" + queryText({ anlage_id: String(anlageId || "") }), "GET", undefined, "Akte nicht geladen.");
 }
 
 /**
- * Abbildung laden → Blob-URL. <img src> kann keine x-sitzung mitschicken,
- * deshalb fetch + Blob (SPEC 7). Je Bild nur ein Abruf pro Fenster; ein
- * Fehlversuch wird nicht festgehalten, damit der nächste Block neu laden darf.
+ * Alle Anlagen mit Adresse für die Fallsuche (SPEC 14.2.7, GET akte?liste=1)
+ * → { ok, anlagen: [{id, kunde_alias, strasse, hausnummer, plz, ort, offene_tickets}] }.
+ * Einmal je Sitzung laden; gefiltert wird im Browser (app.js).
+ */
+export async function akteListe() {
+  return jsonOk("akte?liste=1", "GET", undefined, "Anlagenliste nicht geladen.");
+}
+
+export async function quelle(id) {
+  return jsonOk("quelle" + queryText({ id: String(id || "") }), "GET", undefined, "Quelle nicht geladen.");
+}
+
+// --- Einsatz, Freigabe, Handbuch -------------------------------------------------
+
+/** GET einsatz[?anlage_id=…] – Listen für das Formular (anlageId optional). */
+export async function einsatzListen(anlageId) {
+  return jsonOk("einsatz" + queryText(anlageId ? { anlage_id: String(anlageId) } : null), "GET", undefined, "Listen nicht geladen.");
+}
+
+/** POST einsatz {schritt: 'anlegen' | 'nachtragen', ...daten} */
+export async function einsatz(schritt, daten) {
+  return jsonOk("einsatz", "POST", Object.assign({ schritt: schritt }, daten || {}), "Einsatz nicht gespeichert.");
+}
+
+/** GET freigabe[?nur=zahlen] */
+export async function freigaben(nurZahlen) {
+  return jsonOk("freigabe" + (nurZahlen ? "?nur=zahlen" : ""), "GET", undefined, "Freigaben nicht geladen.");
+}
+
+/** POST freigabe {art, id, entscheidung, …} */
+export async function freigabe(daten) {
+  return jsonOk("freigabe", "POST", daten || {}, "Entscheidung nicht gespeichert.");
+}
+
+/** GET handbuch[?dokument_id=…] */
+export async function handbuecher(dokumentId) {
+  return jsonOk("handbuch" + queryText(dokumentId ? { dokument_id: String(dokumentId) } : null), "GET", undefined, "Handbücher nicht geladen.");
+}
+
+/** POST handbuch {schritt, ...daten} */
+export async function handbuch(schritt, daten) {
+  return jsonOk("handbuch", "POST", Object.assign({ schritt: schritt }, daten || {}), "Handbuch-Schritt nicht ausgeführt.");
+}
+
+/**
+ * Rohe Anfrage für die Prüfseite und die Abnahme (13.4.1): wirft nie,
+ * wechselt keine Sitzung, liefert {status, typ, json|null}.
+ * fn: Name der Function; query: Objekt oder "a=b"; body: Objekt (→ POST, wenn keine methode).
+ */
+export async function roh(fn, optionen) {
+  const o = optionen || {};
+  const methode = o.methode || (o.body !== undefined ? "POST" : "GET");
+  let antwort;
+  try {
+    antwort = await senden(String(fn) + queryText(o.query), {
+      method: methode,
+      headers: kopfzeilen(o.body !== undefined),
+      body: o.body !== undefined ? JSON.stringify(o.body) : undefined,
+      cache: "no-store",
+    });
+  } catch (e) {
+    return { status: 0, typ: "", json: null, fehler: e && e.message ? e.message : String(e) };
+  }
+  let typ = "";
+  try {
+    typ = (antwort.headers && antwort.headers.get && antwort.headers.get("content-type")) || "";
+  } catch (e) {
+    typ = "";
+  }
+  let json = null;
+  if (/json/i.test(typ) || !typ) {
+    json = await leseInhalt(antwort);
+  } else {
+    try {
+      await antwort.blob();
+    } catch (e) {
+      // Körper verwerfen
+    }
+  }
+  return { status: antwort.status, typ: typ, json: json };
+}
+
+// --- Bilder ----------------------------------------------------------------------
+
+/**
+ * Abbildung bzw. Seitenbild laden → Blob-URL. <img src> kann keine x-sitzung
+ * mitschicken, deshalb fetch + Blob (SPEC 7). Je Bild nur ein Abruf pro
+ * Fenster; ein Fehlversuch wird nicht festgehalten, damit es erneut gehen darf.
  */
 const bildCache = new Map();
+const seitenCache = new Map();
 
-export function ladeBild(id) {
-  const schluessel = String(id);
-  if (bildCache.has(schluessel)) return bildCache.get(schluessel);
+function bildHolen(cache, schluessel, pfad, mockHolen) {
+  if (cache.has(schluessel)) return cache.get(schluessel);
   const versprechen = (async function () {
     if (istMock) {
       const m = await mockModul();
-      return m.bildDataUrl(id);
+      return mockHolen(m);
     }
     let antwort;
     try {
-      antwort = await senden("bild?id=" + encodeURIComponent(schluessel), {
-        method: "GET",
-        headers: kopfzeilen(false),
-      });
+      antwort = await senden(pfad, { method: "GET", headers: kopfzeilen(false) });
     } catch (e) {
       if (e instanceof ApiFehler) throw e;
       throw new ApiFehler("netz", NETZFEHLER);
     }
-    if (!antwort.ok) throw new ApiFehler("bild", "Abbildung konnte nicht geladen werden.", antwort.status);
+    if (!antwort.ok) throw new ApiFehler("bild", "Bild konnte nicht geladen werden.", antwort.status);
     const blob = await antwort.blob();
     return URL.createObjectURL(blob);
   })();
-  bildCache.set(schluessel, versprechen);
+  cache.set(schluessel, versprechen);
   versprechen.then(null, function () {
-    bildCache.delete(schluessel);
+    cache.delete(schluessel);
   });
   return versprechen;
+}
+
+/** Abbildung (bild?id=N) → Blob-URL. */
+export function ladeBild(id) {
+  return bildHolen(bildCache, String(id), "bild?id=" + encodeURIComponent(String(id)), function (m) {
+    return m.bildDataUrl(id);
+  });
+}
+
+/** Seitenbild (bild?dok=…&seite=…) → Blob-URL. */
+export function ladeSeitenbild(dokumentId, seite) {
+  const schluessel = String(dokumentId) + "|" + String(seite);
+  return bildHolen(seitenCache, schluessel, "bild" + queryText({ dok: String(dokumentId), seite: String(seite) }), function (m) {
+    return m.seitenbildDataUrl(dokumentId, seite);
+  });
 }

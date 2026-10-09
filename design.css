@@ -1,0 +1,705 @@
+/* ============================================================================
+   design.css  ·  Tokens, Grundlagen und gemeinsame Bausteine (SPEC 13.3.6)
+   ----------------------------------------------------------------------------
+   Redesign A „Klar“ + B „Dokument“: helle, ruhige Fläche, Karten mit Luft,
+   Serife nur für Titel, Farbe sparsam. Namen sind Vertrag – FA (abgeben.css)
+   benutzt die Bausteine hier, definiert sie nicht neu.
+
+   Markenfarbe: 21 Variablen. Die Werte hier sind der Rückfall für die
+   Startfarbe #1F5FAE (Stufen in OKLCH, Chroma ≤ 0,2, Kontraste geprüft).
+   app.js überschreibt sie mit `farben.variablen` aus GET einrichtung – als
+   vorberechnetes Hex, nicht per color-mix (Entwurf C, Technik): color-mix
+   kann keine Kontraste garantieren, eine vorberechnete Palette schon.
+
+   Markenfarbe NIE für Stopp, Achtung oder Nutzer-Blasen: Eine rote Marke darf
+   nicht mit der Stopp-Box verwechselt werden (deshalb Stopp immer mit Symbol
+   UND Wort, Nutzer-Blasen neutral).
+
+   Keine externen Ressourcen: Systemschriften (Google Fonts übertrügen die IP
+   vor jeder Einwilligung – beim Matari-Bot ein offener DSGVO-Punkt).
+   ========================================================================= */
+
+:root {
+  color-scheme: light;
+
+  /* --- Marke (Rückfall #1F5FAE, überschrieben aus farben.variablen) ---
+     Werte = GET einrichtung?farbe=%231F5FAE aus _shared/branding.ts (lokal.ts
+     --mocks, 08.10.2026). So sieht die App ohne Netz genauso aus wie mit. */
+  --marke: #1F5FAE;
+  --marke-50: #F2F7FF;
+  --marke-100: #E2EEFF;
+  --marke-200: #C4DDFF;
+  --marke-300: #98C4FF;
+  --marke-400: #6AA4F0;
+  --marke-500: #4887D9;
+  --marke-600: #2F6EBF;
+  --marke-700: #1B57A1;
+  --marke-800: #0A4180;
+  --marke-900: #022C5E;
+  --marke-knopf: #1F5FAE;
+  --auf-marke: #FFFFFF;
+  --marke-text: #1F5FAE;
+  --marke-text-dunkel: #7099CB;
+  --marke-flaeche: #EFF6FF;
+  --marke-flaeche-2: #DFEDFF;
+  --marke-linie: #B9D3F6;
+  --marke-markierung: #C9E0FF;
+  --marke-balken: #1F5FAE;
+  --marke-fokus: #1F5FAE;
+
+  /* --- Flächen --- */
+  --grund: #F6F5F1;
+  --flaeche: #FBFAF7;
+  --karte: #FFFFFF;
+  --karte-2: #F4F3EE;
+  --blase: #ECEAE4;
+  --insel: #1C1C1E;
+  --schleier: rgba(28, 28, 30, .32);
+
+  /* --- Linien --- */
+  --linie: #E5E2DA;
+  --linie-fein: #EEECE6;
+  --linie-stark: #D3CFC5;
+  --linie-feld: #8C887E;
+
+  /* --- Schrift --- */
+  --text: #23221F;
+  --text-2: #57554F;
+  --text-3: #6B6963;
+  --insel-text: #F5F5F7;
+  --insel-text-2: #AEAEB2;
+
+  /* --- Stufen --- */
+  --stopp: #B42318;
+  --stopp-tinte: #8A1C12;
+  --stopp-flaeche: #FDF1EF;
+  --stopp-linie: #F1C4BD;
+  --stopp-hell: #FF8A80;
+
+  --achtung: #A15C07;
+  --achtung-tinte: #6E3D05;
+  --achtung-flaeche: #FBF3E4;
+  --achtung-linie: #EDD3A8;
+  --achtung-hell: #F5B85A;
+
+  --hinweis: #2B5FAA;
+  --hinweis-tinte: #1D447F;
+  --hinweis-flaeche: #EEF3FB;
+  --hinweis-linie: #CAD8EF;
+
+  --gut: #23703F;
+  --gut-tinte: #1B5631;
+  --gut-flaeche: #EAF4EE;
+  --gut-linie: #BFDCC9;
+  --gut-hell: #7FD39A;
+
+  /* --- Schriftarten --- */
+  --schrift: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --schrift-serif: ui-serif, "Iowan Old Style", Charter, Georgia, serif;
+  --schrift-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* --- Größen --- */
+  --gr-1: 12px;
+  --gr-2: 13px;
+  --gr-3: 15px;
+  --gr-4: 17px;
+  --gr-5: 21px;
+  --gr-6: 28px;
+  --gr-7: 36px;
+  --zh-eng: 1.25;
+  --zh: 1.5;
+  --zh-weit: 1.6;
+  --gewicht-normal: 400;
+  --gewicht-mittel: 500;
+  --gewicht-fett: 600;
+
+  /* --- Abstände --- */
+  --a-1: 4px;
+  --a-2: 8px;
+  --a-3: 12px;
+  --a-4: 16px;
+  --a-5: 24px;
+  --a-6: 32px;
+  --a-7: 48px;
+  --a-8: 64px;
+
+  /* --- Radien --- */
+  --r-xs: 6px;
+  --r-s: 8px;
+  --r-m: 12px;
+  --r-l: 16px;
+  --r-xl: 22px;
+  --r-voll: 999px;
+
+  /* --- Schatten --- */
+  --schatten-1: 0 1px 1px rgba(15, 15, 30, .03), 0 1px 3px rgba(15, 15, 30, .04);
+  --schatten-2: 0 1px 2px rgba(15, 15, 30, .04), 0 4px 10px -4px rgba(15, 15, 30, .06), 0 16px 36px -18px rgba(15, 15, 30, .14);
+  --schatten-3: 0 2px 4px rgba(15, 15, 30, .04), 0 12px 28px -10px rgba(15, 15, 30, .14), 0 36px 72px -36px rgba(15, 15, 30, .28);
+  --schatten-sheet: 0 -8px 40px -12px rgba(15, 15, 30, .25);
+
+  /* --- Bewegung --- */
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --feder: cubic-bezier(.34, 1.36, .64, 1);
+  --dauer-1: 160ms;
+  --dauer-2: 280ms;
+  --dauer-3: 480ms;
+
+  /* --- Maße --- */
+  --banner-h: 28px;
+  --kopf-h: 64px;
+  /* SPEC 14.3.4: Akte links 360 px (1024–1279: 300 px), Chat-Inhalt ≤ 720 px,
+     Blatt „Woher?“ 420 px. --herkunft-b bleibt für ältere Bausteine stehen. */
+  --akte-b: 360px;
+  --herkunft-b: 360px;
+  --blatt-b: 420px;
+  --chat-max: 720px;
+  --inhalt-max: 1400px;
+  --form-max: 720px;
+  --rand: 16px;
+  --sheet-max: 88dvh;
+
+  /* --- Ebenen --- */
+  --z-kopf: 30;
+  --z-overlay: 40;
+  --z-sheet: 50;
+  --z-toast: 60;
+  --z-banner: 70;
+}
+
+@media (min-width: 1024px) {
+  :root { --rand: 24px; }
+}
+@media (min-width: 1024px) and (max-width: 1279.98px) {
+  :root { --akte-b: 300px; }
+}
+@media (max-width: 1023.98px) {
+  :root { --kopf-h: 56px; }
+}
+@supports not (height: 1dvh) {
+  :root { --sheet-max: 88vh; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dauer-1: 0ms;
+    --dauer-2: 0ms;
+    --dauer-3: 0ms;
+  }
+  *, *::before, *::after {
+    animation-duration: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ========================================================================
+   Grundlagen
+   ===================================================================== */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--grund);
+  color: var(--text);
+  font-family: var(--schrift);
+  font-size: var(--gr-3);
+  line-height: var(--zh);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "kern" 1;
+  overflow-wrap: break-word;
+}
+
+h1, h2, h3, h4, h5, h6, p, ul, ol, dl, dd, figure, blockquote, fieldset { margin: 0; }
+ul, ol { padding: 0; }
+fieldset { border: 0; padding: 0; min-width: 0; }
+legend { padding: 0; }
+img, svg { display: block; max-width: 100%; }
+img { height: auto; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+a { color: var(--marke-text); text-underline-offset: 2px; }
+a:hover { text-decoration-thickness: 2px; }
+[hidden] { display: none !important; }
+abbr[title] { text-decoration: none; }
+::selection { background: var(--marke-markierung); color: var(--text); }
+
+/* Fokusring überall gleich – sichtbar, in Markenfarbe, ≥ 3:1. */
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--marke-fokus);
+  outline-offset: 2px;
+}
+
+.ikon { flex: none; }
+
+.mono, code, kbd { font-family: var(--schrift-mono); font-size: .92em; letter-spacing: 0; }
+.zahl { font-variant-numeric: tabular-nums; }
+
+/* ========================================================================
+   Typografie-Bausteine
+   ===================================================================== */
+
+.titel-serif {
+  font-family: var(--schrift-serif);
+  font-weight: var(--gewicht-fett);
+  font-size: var(--gr-6);
+  line-height: var(--zh-eng);
+  letter-spacing: -.01em;
+  color: var(--text);
+  text-wrap: balance;
+}
+
+.kicker {
+  font-size: var(--gr-1);
+  font-weight: var(--gewicht-fett);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  line-height: var(--zh-eng);
+}
+
+.sr-only, .unsichtbar {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ========================================================================
+   Knöpfe
+   ===================================================================== */
+
+.knopf {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--a-2);
+  min-height: 40px;
+  padding: 8px 16px;
+  border: 1px solid transparent;
+  border-radius: var(--r-m);
+  background: var(--karte);
+  color: var(--text);
+  font-size: var(--gr-3);
+  font-weight: var(--gewicht-mittel);
+  line-height: var(--zh-eng);
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color var(--dauer-1) var(--ease), border-color var(--dauer-1) var(--ease),
+    box-shadow var(--dauer-1) var(--ease), color var(--dauer-1) var(--ease), transform var(--dauer-1) var(--ease);
+  -webkit-tap-highlight-color: transparent;
+}
+.knopf:active:not(:disabled) { transform: scale(.98); }
+.knopf:disabled { opacity: .55; }
+
+.knopf-primaer {
+  background: var(--marke-knopf);
+  color: var(--auf-marke);
+  box-shadow: var(--schatten-1);
+}
+.knopf-primaer:hover:not(:disabled) { background: var(--marke-700); }
+
+.knopf-rand, .knopf-sekundaer {
+  background: var(--karte);
+  border-color: var(--linie-stark);
+  color: var(--text);
+}
+.knopf-rand:hover:not(:disabled), .knopf-sekundaer:hover:not(:disabled) { border-color: var(--linie-feld); background: var(--flaeche); }
+
+.knopf-leise {
+  background: transparent;
+  color: var(--marke-text);
+}
+.knopf-leise:hover:not(:disabled) { background: var(--marke-flaeche); }
+
+.knopf-gefahr {
+  background: var(--karte);
+  border-color: var(--stopp-linie);
+  color: var(--stopp-tinte);
+}
+.knopf-gefahr:hover:not(:disabled) { background: var(--stopp-flaeche); border-color: var(--stopp); }
+
+.knopf-klein {
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: var(--gr-2);
+  border-radius: var(--r-s);
+  gap: 6px;
+}
+.knopf-breit { width: 100%; }
+/* Erledigte Aktion: nicht ausgegraut, sondern sichtbar „gemacht“ */
+.knopf.knopf-erledigt, .knopf.knopf-erledigt:disabled {
+  opacity: 1;
+  background: var(--gut-flaeche);
+  border-color: var(--gut-linie);
+  color: var(--gut-tinte);
+  box-shadow: none;
+}
+
+@media (max-width: 639.98px) {
+  .knopf { min-height: 44px; }
+  .knopf-klein { min-height: 36px; }
+}
+
+/* Icon-Knopf (nur Symbol, Name per aria-label) */
+.knopf-ikon {
+  min-width: 40px;
+  padding: 8px;
+}
+@media (max-width: 639.98px) {
+  .knopf-ikon { min-width: 44px; }
+}
+
+/* ========================================================================
+   Felder
+   ===================================================================== */
+
+.feld {
+  display: block;
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid var(--linie-feld);
+  border-radius: var(--r-s);
+  background: var(--karte);
+  color: var(--text);
+  font-size: 16px; /* < 16 px zoomt iOS beim Fokussieren */
+  line-height: var(--zh);
+  transition: border-color var(--dauer-1) var(--ease), box-shadow var(--dauer-1) var(--ease);
+}
+.feld::placeholder { color: var(--text-3); opacity: 1; }
+.feld:hover:not(:disabled) { border-color: var(--text-2); }
+.feld:focus-visible, .feld:focus {
+  outline: none;
+  border-color: var(--marke-fokus);
+  box-shadow: 0 0 0 3px var(--marke-flaeche-2), 0 0 0 1px var(--marke-fokus);
+}
+.feld:disabled { background: var(--karte-2); color: var(--text-2); }
+textarea.feld { resize: vertical; min-height: 84px; }
+select.feld {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 34px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-2) 50%), linear-gradient(135deg, var(--text-2) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+/* Fehler nicht nur über die Farbe (bei roter Marke wäre der Fokusrand sonst
+   gleich): doppelt so kräftiger Rand und ein Symbol vor der Meldung (Befund design-05). */
+.feld[aria-invalid="true"] { border-color: var(--stopp); box-shadow: 0 0 0 1px var(--stopp); }
+.feld[aria-invalid="true"]:focus, .feld[aria-invalid="true"]:focus-visible { box-shadow: 0 0 0 3px var(--stopp-flaeche), 0 0 0 1px var(--stopp); }
+
+.feld-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: var(--gr-2);
+  font-weight: var(--gewicht-fett);
+  color: var(--text);
+}
+.feld-label .pflicht { color: var(--stopp); margin-left: 2px; }
+.feld-hilfe {
+  margin-top: 6px;
+  font-size: var(--gr-2);
+  color: var(--text-2);
+}
+.feld-fehler {
+  margin-top: 6px;
+  font-size: var(--gr-2);
+  color: var(--stopp-tinte);
+  font-weight: var(--gewicht-mittel);
+}
+.feld-fehler:not(:empty)::before {
+  content: "!";
+  content: "!" / "";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--stopp);
+  color: #FFFFFF;
+  font-size: 11px;
+  font-weight: var(--gewicht-fett);
+  line-height: 1;
+  vertical-align: -2px;
+}
+.feld-fehler:empty { display: none; }
+
+.haken-zeile {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: var(--gr-3);
+  cursor: pointer;
+}
+.haken-zeile input[type="checkbox"], .haken-zeile input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  accent-color: var(--marke-knopf);
+  flex: none;
+}
+
+/* ========================================================================
+   Karten, Etiketten, Chips, Pillen
+   ===================================================================== */
+
+.karte {
+  background: var(--karte);
+  border: 1px solid var(--linie-fein);
+  border-radius: var(--r-l);
+  box-shadow: var(--schatten-1);
+  padding: var(--a-4) var(--a-5) var(--a-5);
+}
+@media (max-width: 639.98px) {
+  .karte { padding: var(--a-3) var(--a-4) var(--a-4); }
+}
+.karte-kopf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--a-2) var(--a-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--a-3);
+}
+
+/* Herkunfts-Etikett über jeder Karte (SPEC 13.3.5) */
+.etikett {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--gr-2);
+  font-weight: var(--gewicht-fett);
+  line-height: var(--zh-eng);
+  color: var(--text-2);
+  min-width: 0;
+}
+.etikett .ikon { width: 15px; height: 15px; }
+.etikett-art { font-weight: var(--gewicht-normal); color: var(--text-2); }
+.etikett-art::before { content: "· "; }
+.etikett-assistent { color: var(--marke-text); }
+.etikett-akte, .etikett-unterlage, .etikett-aktion { color: var(--text-2); }
+.etikett-system { color: var(--text-3); }
+.etikett-regel-stopp { color: var(--stopp); }
+.etikett-regel-achtung { color: var(--achtung); }
+.etikett-regel-hinweis { color: var(--hinweis); }
+.etikett-regel-stopp, .etikett-regel-achtung, .etikett-regel-hinweis {
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  font-size: var(--gr-1);
+}
+.etikett-regel-stopp .etikett-art, .etikett-regel-achtung .etikett-art, .etikett-regel-hinweis .etikett-art {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Quellen-Chip: Titel kürzt sich, Seite nie */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 30px;
+  padding: 3px 10px;
+  border: 1px solid var(--linie);
+  border-radius: var(--r-voll);
+  background: var(--karte);
+  color: var(--text);
+  font-size: var(--gr-2);
+  line-height: var(--zh-eng);
+  text-decoration: none;
+  transition: background-color var(--dauer-1) var(--ease), box-shadow var(--dauer-1) var(--ease), border-color var(--dauer-1) var(--ease);
+}
+button.chip:hover, a.chip:hover { border-color: var(--marke-linie); background: var(--marke-flaeche); }
+.chip .ikon { width: 14px; height: 14px; color: var(--text-2); }
+.chip-titel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip-seite { flex: none; white-space: nowrap; color: var(--text-2); }
+.chip-kennung { font-family: var(--schrift-mono); font-size: 12px; }
+
+.pille {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: var(--r-voll);
+  border: 1px solid transparent;
+  font-size: var(--gr-1);
+  font-weight: var(--gewicht-fett);
+  line-height: 18px;
+  white-space: nowrap;
+}
+.pille .ikon { width: 13px; height: 13px; }
+.pille-neutral { background: var(--karte-2); color: var(--text-2); border-color: var(--linie); }
+.pille-gut { background: var(--gut-flaeche); color: var(--gut-tinte); border-color: var(--gut-linie); }
+.pille-achtung { background: var(--achtung-flaeche); color: var(--achtung-tinte); border-color: var(--achtung-linie); }
+.pille-stopp { background: var(--stopp-flaeche); color: var(--stopp-tinte); border-color: var(--stopp-linie); }
+.pille-hinweis { background: var(--hinweis-flaeche); color: var(--hinweis-tinte); border-color: var(--hinweis-linie); }
+.pille-marke { background: var(--marke-flaeche); color: var(--marke-text); border-color: var(--marke-linie); }
+
+.tastenkappe {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border: 1px solid var(--linie-stark);
+  border-bottom-width: 2px;
+  border-radius: var(--r-xs);
+  background: var(--karte);
+  color: var(--text-2);
+  font-family: var(--schrift-mono);
+  font-size: 12px;
+  font-weight: var(--gewicht-mittel);
+  line-height: 1;
+}
+
+/* „Geht als … raus“ – Vorschau vor jedem Senden/Speichern (Entwurf B) */
+.geht-raus {
+  padding: var(--a-3) var(--a-4);
+  border-radius: var(--r-m);
+  background: var(--karte-2);
+  border: 1px dashed var(--linie-stark);
+  font-size: var(--gr-2);
+  line-height: var(--zh);
+  color: var(--text-2);
+}
+.geht-raus strong, .geht-raus-kopf {
+  color: var(--text);
+  font-weight: var(--gewicht-fett);
+}
+.geht-raus-text { color: var(--text); white-space: pre-line; }
+
+/* Leerzustand */
+.leer {
+  padding: var(--a-6) var(--a-4);
+  text-align: center;
+  color: var(--text-2);
+  font-size: var(--gr-3);
+}
+.leer .ikon { margin: 0 auto var(--a-3); color: var(--text-3); }
+
+/* Skelett während des Ladens (statt leerer Fläche) */
+.skelett {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-s);
+  background: var(--karte-2);
+  min-height: 12px;
+}
+.skelett::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .7), transparent);
+  animation: skelett-glanz 1.4s var(--ease) infinite;
+}
+@keyframes skelett-glanz {
+  to { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skelett::after { animation: none; display: none; }
+}
+
+/* Segment (zwei bis vier Optionen) */
+.segment {
+  display: inline-flex;
+  align-items: stretch;
+  padding: 3px;
+  gap: 2px;
+  border-radius: var(--r-m);
+  background: var(--karte-2);
+  border: 1px solid var(--linie);
+}
+.segment > button, .segment > a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 14px;
+  border: 0;
+  border-radius: var(--r-s);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--gr-2);
+  font-weight: var(--gewicht-mittel);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color var(--dauer-1) var(--ease), color var(--dauer-1) var(--ease), box-shadow var(--dauer-1) var(--ease);
+}
+.segment > [aria-pressed="true"], .segment > [aria-current="page"], .segment > [aria-selected="true"] {
+  background: var(--karte);
+  color: var(--text);
+  box-shadow: var(--schatten-1);
+}
+.segment > button:hover:not([aria-pressed="true"]):not([aria-selected="true"]) { color: var(--text); }
+
+/* Kachelraster (Abgeben-Start, Moduswahl) */
+.raster-kacheln {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--a-4);
+}
+
+/* Aktionsleiste unten (Formulare auf dem Handy klebend) */
+.leiste-unten {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--a-2) var(--a-3);
+  padding: var(--a-3) 0;
+}
+@media (max-width: 1023.98px) {
+  .leiste-unten {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    margin: 0 calc(var(--rand) * -1);
+    padding: var(--a-3) var(--rand) calc(var(--a-3) + env(safe-area-inset-bottom, 0px));
+    background: var(--flaeche);
+    border-top: 1px solid var(--linie);
+  }
+}
+
+/* Überfahren einer Quelle ↔ zitierende Aussagen (Entwurf B) */
+[data-quellen], [data-quelle] {
+  transition: background-color var(--dauer-1) var(--ease), box-shadow var(--dauer-1) var(--ease);
+}
+.zitat-leuchtet {
+  background-color: var(--marke-flaeche-2) !important;
+  box-shadow: 0 0 0 2px var(--marke-linie);
+}
+.quelle-leuchtet {
+  background-color: var(--marke-flaeche-2) !important;
+  box-shadow: 0 0 0 2px var(--marke-linie);
+}
+
+/* Markierung im Seitentext */
+mark, .markiert {
+  background: var(--marke-markierung);
+  color: var(--text);
+  border-radius: 3px;
+  padding: 0 2px;
+}

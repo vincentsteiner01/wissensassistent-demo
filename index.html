@@ -5,114 +5,37 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
   <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#F6F5F1">
   <title>Wissensassistent – Demo</title>
   <!-- Leeres Favicon: spart eine 404 im Log jeder Anfrage. -->
   <link rel="icon" href="data:,">
-  <!-- Keine externen Schriften (Google Fonts übertragen die IP vor jeder
-       Einwilligung – beim Matari-Bot ein offener DSGVO-Punkt). Systemschrift. -->
+  <!-- Keine externen Ressourcen: Systemschriften, keine CDNs (SPEC 13.3.6).
+       Reihenfolge laut SPEC 13.3.8: Tokens → Schale → Wissen aufladen. -->
+  <link rel="stylesheet" href="design.css">
   <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="abgeben.css">
   <script type="module" src="app.js"></script>
 </head>
-<body>
-  <!-- Prinzip 7: dauerhaft, nicht schließbar. Kein Schließknopf, kein
-       Ausblenden beim Scrollen. -->
+<body data-ansicht="laden">
+  <!-- Fixiert, nicht schließbar: Jede Ansicht sagt, dass die Daten erfunden sind. -->
   <div class="banner" id="banner" role="note">
     <strong>Demo – fiktive Daten</strong><span id="banner-zusatz"></span>
   </div>
 
-  <header class="kopf" id="kopf">
-    <div class="rahmen kopf-innen">
-      <div class="marke">
-        <span class="marke-name">Wissensassistent</span>
-        <span class="marke-firma">Muster Solartechnik GmbH (Demo)</span>
-      </div>
-      <nav class="reiter" id="reiter" aria-label="Bereiche" hidden>
-        <button type="button" class="reiter-knopf" id="reiter-fragen" aria-pressed="true">Fragen</button>
-        <button type="button" class="reiter-knopf" id="reiter-wissen" aria-pressed="false">Wissen erfassen</button>
-      </nav>
-      <div class="nutzer" id="nutzer" hidden>
-        <span class="rolle-badge" id="nutzer-rolle"></span>
-        <span class="nutzer-name" id="nutzer-name"></span>
-        <button type="button" class="knopf knopf-leise" id="abmelden">Abmelden</button>
-      </div>
-    </div>
-  </header>
+  <!-- Zwei Zonen (SPEC 14.3.4): links Akte oder Fallsuche, rechts Chat bzw.
+       „Wissen aufladen“. Blätter („Woher?“, Quelle, Bild) hängt app.js an body. -->
+  <div class="app" id="app">
+    <header class="kopf" id="kopf" hidden></header>
+    <main class="haupt" id="haupt">
+      <p class="laden" id="ansicht-laden">Wird geladen …</p>
+      <section class="einstieg" id="ansicht-login" aria-label="Anmelden" hidden></section>
+      <div class="flaeche" id="ansicht-arbeit" hidden></div>
+    </main>
+  </div>
 
-  <main class="rahmen haupt" id="haupt">
-    <p class="laden" id="ansicht-laden">Wird geladen …</p>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
 
-    <!-- Anmelden: Passcode, dann Rollenwahl -->
-    <section class="login" id="ansicht-login" aria-labelledby="login-titel" hidden>
-      <div class="login-karte">
-        <h1 class="login-titel" id="login-titel">Anmelden</h1>
-        <form id="form-passcode" novalidate>
-          <label class="feld-label" for="passcode">Passcode</label>
-          <input class="feld" id="passcode" type="password" autocomplete="current-password"
-                 autocapitalize="off" autocorrect="off" spellcheck="false" required>
-          <button type="submit" class="knopf knopf-primaer knopf-breit" id="passcode-weiter">Weiter</button>
-        </form>
-        <div class="rollenwahl" id="rollenwahl" hidden>
-          <p class="login-hallo" id="rollen-hallo"></p>
-          <fieldset class="rollen-feld">
-            <legend>Als welche Rolle arbeitest du in diesem Fenster?</legend>
-            <div class="rollen-liste" id="rollen-liste"></div>
-          </fieldset>
-          <button type="button" class="knopf knopf-leise" id="rolle-zurueck">Anderen Passcode eingeben</button>
-        </div>
-        <p class="login-fehler" id="login-fehler" role="alert"></p>
-        <p class="login-hinweis">Die Rolle gilt nur für dieses Fenster. Für eine zweite Rolle ein zweites Fenster öffnen und dort anmelden.</p>
-        <p class="login-hinweis">Datenschutz: Eingaben werden zur Verbesserung der Demo protokolliert. Bitte keine echten Kundendaten eingeben.</p>
-      </div>
-    </section>
-
-    <!-- Fragen -->
-    <section class="chat" id="ansicht-chat" aria-label="Fragen" hidden>
-      <div class="verlauf" id="verlauf">
-        <div class="leer" id="leer">
-          <h1 class="leer-titel">Was liegt an?</h1>
-          <p class="leer-text">Beschreib den Fall wie am Telefon – am besten mit Anlagennummer. Die Antworten kommen aus Herstellerunterlagen, Meister-Notizen und der Ticket-Historie, jeweils mit Quelle.</p>
-          <p class="leer-beispiele-titel" id="beispiele-titel">Zum Ausprobieren (füllt nur das Eingabefeld):</p>
-          <ul class="leer-beispiele" id="leer-beispiele" aria-labelledby="beispiele-titel"></ul>
-        </div>
-      </div>
-      <form class="eingabe" id="form-frage" novalidate>
-        <!-- Welche Anlage sich die Sitzung merkt: Fragen ohne Anlagennummer
-             und „Ticket kann zu“ beziehen sich auf sie. -->
-        <div class="fall-zeile" id="fall-zeile" hidden>
-          <span class="fall-text"><span class="fall-wort">Laufender </span>Fall: <strong id="fall-anlage"></strong><span id="fall-kunde"></span></span>
-          <button type="button" class="fall-neu" id="fall-neu">Neuer Fall</button>
-          <span class="fall-meldung" id="fall-meldung" role="status"></span>
-        </div>
-        <div class="eingabe-zeile">
-          <label for="frage-text" class="unsichtbar">Frage</label>
-          <textarea class="feld eingabe-feld" id="frage-text" rows="1" maxlength="1500" enterkeyhint="send"
-                    placeholder="Fall beschreiben …"></textarea>
-          <button type="submit" class="knopf knopf-primaer eingabe-senden" id="frage-senden">Senden</button>
-        </div>
-        <p class="eingabe-hinweis" id="eingabe-hinweis">Enter sendet, Umschalt + Enter macht eine neue Zeile.</p>
-      </form>
-    </section>
-
-    <!-- Wissen erfassen (nur Rolle Meister) -->
-    <section class="wissen" id="ansicht-wissen" aria-labelledby="wissen-titel" hidden>
-      <div class="wissen-spalte">
-        <h1 class="wissen-titel" id="wissen-titel">Wissen erfassen</h1>
-        <p class="wissen-einleitung">Erzähl ein Fehlerbild so, wie du es einem Kollegen erklären würdest: welches Gerät, was passiert, woran es lag, was geholfen hat. Der Assistent ordnet es in Felder, du prüfst und gibst frei – ab dann ist die Notiz eine Quelle.</p>
-        <form id="form-notiz" novalidate>
-          <label class="feld-label" for="notiz-text">Notiz</label>
-          <textarea class="feld notiz-feld" id="notiz-text" rows="7" maxlength="3000"
-                    aria-describedby="notiz-hinweis"></textarea>
-          <p class="notiz-hinweis" id="notiz-hinweis">Tippen oder diktieren (macOS: zweimal Fn)</p>
-          <div class="formular-knoepfe">
-            <button type="submit" class="knopf knopf-primaer" id="notiz-strukturieren">Strukturieren</button>
-          </div>
-          <p class="formular-status" id="notiz-status" role="status"></p>
-        </form>
-        <div id="notiz-karte"></div>
-      </div>
-    </section>
-  </main>
-
+  <noscript><p class="laden">Diese Demo braucht JavaScript.</p></noscript>
   <script nomodule>
     document.getElementById("ansicht-laden").textContent =
       "Dieser Browser ist zu alt für die Demo. Bitte einen aktuellen Browser verwenden.";
