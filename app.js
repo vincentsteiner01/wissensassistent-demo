@@ -118,6 +118,8 @@ const GEPRUEFT = [
   [/^Wiederholung erkannt/, "Wiederholung erkannt"],
   [/^(Verifizierte|Ähnliche) Fälle geladen/, "Ähnliche Fälle gezählt"],
   [/^Frage geht an das Modell/, "KI formuliert"],
+  [/^Analyse läuft/, "KI prüft den Fall"], // zweistufig (SPEC 14.8): Stufe 1
+  [/^Antwort wird formuliert/, "KI formuliert"], // Stufe 2
 ];
 
 // --- Zustand -----------------------------------------------------------------------
@@ -1162,7 +1164,22 @@ async function fallWaehlen(a) {
   });
 }
 
-/** „Keine davon“ (Auswahl): Fallsuche zeigen und hineinspringen. */
+/**
+ * „Keine davon“ (Auswahl, Vincent 09.10.: „Es fehlt der eigene Input bei den
+ * Möglichkeiten“): ins Eingabefeld – dort die richtige Adresse, den Namen oder
+ * die Anlagennummer tippen; der Server löst sie wie jede Frage auf (14.2.6).
+ * Unter 1024 px die Kopfkarte zu, damit das Feld im Blick ist.
+ */
+function keineDavon() {
+  if (!routeHatChat()) navigiere("#/brauchen");
+  if (schmal() && z.kopfkarteAuf) kopfkarteUmschalten(false);
+  naechsterFrame(function () {
+    const f = $("frage-text");
+    if (f) fokus(f);
+  });
+}
+
+/** Fallsuche zeigen und hineinspringen (früher „Keine davon“; Rückfall ohne ctx.keineDavon). */
 function fallSuchen() {
   z.suchen = true;
   if (!routeHatChat()) navigiere("#/brauchen");
@@ -1178,6 +1195,133 @@ function fallSuchen() {
       }
     }
   });
+}
+
+// --- Geräte anklickbar (Vincent 09.10.) ---------------------------------------------
+// „Wenn eine Person am Telefon sagt, um welches Produkt es geht, kann man das da
+// direkt anklicken und muss das nicht in den Chat schreiben.“ Klick auf ein Gerät
+// der Akte → im Chat sofort eine kleine Karte mit den häufigsten Problemen dieses
+// Gerätetyps (aus GET akte: komponenten[].vorschlaege – gezählt über alle
+// Tickets, ohne KI, ohne Anfrage). Ein Chip schickt seine Nachricht wie eine
+// getippte Frage („Wärmepumpe: Druck zu niedrig“), danach läuft alles wie
+// immer. „Etwas anderes …“ füllt nur das Eingabefeld mit „Wärmepumpe: “.
+
+/** „Was ist mit der Wärmepumpe?“ */
+const GERAET_DATIV = {
+  waermepumpe: "der Wärmepumpe",
+  wallbox: "der Wallbox",
+  wechselrichter: "dem Wechselrichter",
+  modulfeld: "der Photovoltaik",
+  speicher: "dem Speicher",
+};
+
+function grossAnfang(t) {
+  const s = String(t || "");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** Eingabefeld vorbelegen und den Cursor ans Ende setzen. */
+function eingabeVorbelegen(text) {
+  const feld = $("frage-text");
+  if (!feld) return;
+  feld.value = text;
+  hoeheAnpassen();
+  fokus(feld);
+  try {
+    feld.setSelectionRange(text.length, text.length);
+  } catch (e) {
+    // egal
+  }
+}
+
+/** Die offene Geräte-Karte entfernen (überholt: Nachricht raus, anderer Fall, anderes Gerät). */
+function geraetKarteEntfernen(sofort) {
+  const karte = $("geraet-karte");
+  if (!karte) return;
+  karte.removeAttribute("id");
+  const weg = function () {
+    if (karte.parentNode) karte.parentNode.removeChild(karte);
+    leerNeu();
+  };
+  if (sofort || ruhig() || typeof karte.animate !== "function") {
+    weg();
+    return;
+  }
+  let anim = null;
+  try {
+    anim = karte.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.98)" }], { duration: 240, easing: EASE, fill: "forwards" });
+  } catch (e) {
+    anim = null;
+  }
+  mitFrist(anim ? anim.finished : null, 320).then(weg);
+}
+
+function geraetGeklickt(k, knopf) {
+  const name = HAUPTGERAETE[k.typ] || KOMPONENTEN[k.typ] || "Gerät";
+  const vorschlaege = (Array.isArray(k.vorschlaege) ? k.vorschlaege : []).filter(function (v) { return v && v.chip; });
+  if (!routeHatChat()) navigiere("#/brauchen");
+  // Unter 1024 px steht die Akte als aufgeklappte Kopfkarte über dem Chat – zu, damit die Karte im Blick ist.
+  if (schmal() && z.kopfkarteAuf) kopfkarteUmschalten(false);
+  geraetKarteEntfernen(true);
+  // Ohne bekannte Probleme (oder älterer Server): gleich tippen lassen.
+  if (!vorschlaege.length) {
+    eingabeVorbelegen(name + ": ");
+    return;
+  }
+  const meldung = h("p", { class: "baum-meldung", role: "status" });
+  const titelId = "geraet-karte-titel";
+  const chips = vorschlaege.map(function (v, i) {
+    return h("button", {
+      type: "button",
+      class: "baum-antwort",
+      "data-nachricht": String(v.nachricht || ""),
+      title: i < 4 ? "Taste " + (i + 1) : null,
+      onclick: function () {
+        const feld = $("frage-text");
+        const nurVorbelegt = feld && feld.value.trim() === name + ":";
+        // Netz zuerst: sende() startet die Anfrage im selben Takt und nimmt die Karte weg.
+        if (!sende(String(v.nachricht || name + ": " + v.chip))) {
+          meldung.textContent = "Bitte warten, bis die laufende Antwort fertig ist.";
+          return;
+        }
+        if (nurVorbelegt) {
+          feld.value = "";
+          hoeheAnpassen();
+        }
+      },
+    }, typo(grossAnfang(v.chip)));
+  });
+  const anders = h("button", {
+    type: "button",
+    class: "baum-anders",
+    onclick: function () { eingabeVorbelegen(name + ": "); },
+  }, ikon("stift", { groesse: 15 }), h("span", { text: "Etwas anderes …" }));
+  const karte = h("section", {
+    class: "karte-e baum geraet-karte",
+    id: "geraet-karte",
+    "data-typ": k.typ,
+    "aria-labelledby": titelId,
+  },
+  h("h3", { class: "baum-frage", id: titelId, text: "Was ist mit " + (GERAET_DATIV[k.typ] || "dem Gerät") + "?" }),
+  h("div", { class: "baum-antworten", role: "group", "aria-labelledby": titelId }, chips.concat([anders])),
+  meldung);
+  // Tasten 1–4 wie im Fragebaum.
+  karte.addEventListener("keydown", function (e) {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    const n = parseInt(e.key, 10);
+    if (n >= 1 && n <= Math.min(4, chips.length)) {
+      e.preventDefault();
+      chips[n - 1].click();
+    }
+  });
+  $("chat-innen").appendChild(karte);
+  leerNeu();
+  einblenden(karte, 0, { y: 8, blur: 0, dauer: 240 });
+  insSichtfeld(karte);
+  naechsterFrame(function () {
+    if (karte.isConnected) fokus(chips[0]);
+  });
+  void knopf;
 }
 
 /**
@@ -1297,18 +1441,27 @@ function akteBauen() {
     return String(y.erstellt_am).localeCompare(String(x.erstellt_am));
   });
 
-  // Geräte: nur Hauptgeräte, Modell und Seriennummer als title.
+  // Geräte: nur Hauptgeräte, Modell und Seriennummer als title. Jedes Gerät
+  // ist ein Knopf (Vincent 09.10.): Sagt der Anrufer, um welches Gerät es
+  // geht, ein Klick – im Chat stehen die häufigsten Probleme als Chips.
   const haupt = komponenten.filter(function (k) { return k && HAUPTGERAETE[k.typ]; });
   if (haupt.length) {
     mehr.appendChild(h("div", { class: "akte-teil" },
       h("h3", { class: "akte-teil-titel", text: "Geräte" }),
       h("ul", { class: "geraete" }, haupt.map(function (k) {
         const fremd = k.installiert_von && k.installiert_von !== "eigenes Team";
-        return h("li", { class: "geraet", title: [k.modell, k.seriennummer].filter(Boolean).join(" · ") || null },
-          h("span", { class: "geraet-ikon", "aria-hidden": "true" }, ikon(KOMPONENTEN_IKON[k.typ] || "werkzeug", { groesse: 20 })),
-          h("span", { class: "geraet-text" },
-            h("strong", { text: HAUPTGERAETE[k.typ] }),
-            h("span", { text: (k.hersteller || "") + (fremd ? " · Fremdfirma" : "") })));
+        return h("li", null, h("button", {
+          type: "button",
+          class: "geraet",
+          "data-typ": k.typ,
+          title: [k.modell, k.seriennummer].filter(Boolean).join(" · ") || null,
+          onclick: function (e) { geraetGeklickt(k, e.currentTarget); },
+        },
+        h("span", { class: "geraet-ikon", "aria-hidden": "true" }, ikon(KOMPONENTEN_IKON[k.typ] || "werkzeug", { groesse: 20 })),
+        h("span", { class: "geraet-text" },
+          h("strong", { text: HAUPTGERAETE[k.typ] }),
+          h("span", { text: (k.hersteller || "") + (fremd ? " · Fremdfirma" : "") })),
+        ikon("weiter", { groesse: 16, klasse: "geraet-pfeil" })));
       }))));
   }
 
@@ -1691,7 +1844,8 @@ function leerNeu() {
   const leer = $("chat-leer");
   if (!leer) return;
   leeren(leer);
-  leer.hidden = z.runden.length > 0;
+  // Auch eine offene Geräte-Karte stellt die Frage („Was ist mit der Wärmepumpe?“).
+  leer.hidden = z.runden.length > 0 || !!$("geraet-karte");
   if (leer.hidden) return;
   const id = anzeigeId();
   if (id) {
@@ -1718,6 +1872,7 @@ function chatLeeren() {
   });
   z.runden = [];
   z.wichtigAlle = false;
+  geraetKarteEntfernen(true);
   leerNeu();
   wichtigNeu();
 }
@@ -1777,6 +1932,7 @@ function sende(text) {
   if (!t || z.laeuft || !z.sitzung) return false;
   if (z.blatt) z.blatt.schliessen(true);
   ueberholteBaeumeEntfernen();
+  geraetKarteEntfernen(false);
   z.fallVorab = null;
   z.suchen = false;
   setzeLaeuft(true);
@@ -1904,6 +2060,7 @@ function antwortCtx(r, bloecke) {
       bildOeffnen(bild, knopf, r);
     },
     fallSuchen: fallSuchen,
+    keineDavon: keineDavon,
     toast: toast,
   };
 }

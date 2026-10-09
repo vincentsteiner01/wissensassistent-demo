@@ -15,7 +15,7 @@
 //           ladeBild(id) → Promise<string> }
 // Optional (13.3.9, 14.3.14): pfad, akteDaneben, oeffneAkte(anlageId, abschnitt?),
 //   oeffneQuelle(id), ladeSeitenbild, rueckfrageTasten, oeffneWoher(knopf),
-//   fallSuchen(); dazu (nur App, additiv): oeffneBild(bild, knopf), toast(text, art).
+//   fallSuchen(), keineDavon(); dazu (nur App, additiv): oeffneBild(bild, knopf), toast(text, art).
 // Fehlt etwas davon (Prüfseite, Einrichtung-Vorschau), zeigt der Renderer die
 // ausführliche Fassung oder deaktiviert den Knopf – er wirft nie.
 //
@@ -935,37 +935,70 @@ function baumKarte(typ, baum, ctx) {
         onclick: function () { antworte({ label: label, weiter: a.weiter }); },
       }, typo(label));
     });
-    let frei = null;
-    if (k.freitext_weiter) {
-      const feld = h("input", {
-        type: "text",
-        class: "baum-feld",
-        placeholder: "Andere Antwort …",
-        "aria-label": "Andere Antwort",
-        autocomplete: "off",
-        enterkeyhint: "send",
-        maxlength: "200",
-      });
-      const nimm = function () {
-        const v = feld.value.trim();
-        if (!v) {
+    // Eigene Antwort bei JEDER Frage (Vincent 09.10.: „Es fehlt der eigene
+    // Input bei den Möglichkeiten“): Unter den Knöpfen ein leiser Chip „Andere
+    // Antwort …“, der ein kleines Feld aufklappt; Enter übernimmt. Die Antwort
+    // steht danach wie eine geklickte als Chip da („Ändern“ geht). Weiter geht
+    // es bei freitext_weiter, sonst wie bei „weiß nicht“ (eine Nachfrage statt
+    // Sackgasse), sonst ist die Frage fertig. Ohne Antwortknöpfe steht das Feld
+    // gleich offen – es gibt dann nichts anderes zu wählen.
+    const weissNicht = antworten.filter(function (a) { return WEISS_NICHT.test(String(a.label || "")); })[0];
+    const freiWeiter = String(k.freitext_weiter || "") || (weissNicht ? String(weissNicht.weiter || "") : "") || "fertig";
+    const feldId = neueId("baum-feld");
+    const feld = h("input", {
+      type: "text",
+      class: "baum-feld",
+      id: feldId,
+      placeholder: "Andere Antwort …",
+      "aria-label": "Andere Antwort",
+      autocomplete: "off",
+      enterkeyhint: "send",
+      maxlength: "200",
+    });
+    const nimm = function () {
+      const v = feld.value.trim();
+      if (!v) {
+        fokus(feld);
+        return;
+      }
+      antworte({ label: v, weiter: freiWeiter });
+    };
+    const frei = h("div", { class: "baum-frei", hidden: knoepfe.length > 0 }, feld,
+      h("button", { type: "button", class: "baum-frei-senden", "aria-label": "Antwort übernehmen", onclick: nimm }, ikon("pfeil-rechts", { groesse: 18, strich: 2 })));
+    let anders = null;
+    if (knoepfe.length) {
+      anders = h("button", {
+        type: "button",
+        class: "baum-anders",
+        "aria-expanded": "false",
+        "aria-controls": feldId,
+        onclick: function () {
+          frei.hidden = false;
+          anders.hidden = true;
+          anders.setAttribute("aria-expanded", "true");
+          bewege(frei, [{ opacity: 0, transform: "translateY(-4px)" }, { opacity: 1, transform: "none" }], 200);
           fokus(feld);
-          return;
-        }
-        antworte({ label: v, weiter: k.freitext_weiter });
-      };
-      feld.addEventListener("keydown", function (e) {
-        if (e.key === "Enter" && !e.isComposing) {
-          e.preventDefault();
-          nimm();
-        }
-      });
-      frei = h("div", { class: "baum-frei" }, feld,
-        h("button", { type: "button", class: "baum-frei-senden", "aria-label": "Antwort übernehmen", onclick: nimm }, ikon("pfeil-rechts", { groesse: 18, strich: 2 })));
+        },
+      }, ikon("stift", { groesse: 15 }), h("span", { text: "Andere Antwort …" }));
     }
+    feld.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && !e.isComposing) {
+        e.preventDefault();
+        nimm();
+      } else if (e.key === "Escape" && anders && !feld.value.trim()) {
+        // Leer zuklappen; mit Text bleibt es offen (nichts geht verloren).
+        e.preventDefault();
+        e.stopPropagation();
+        frei.hidden = true;
+        anders.hidden = false;
+        anders.setAttribute("aria-expanded", "false");
+        fokus(anders);
+      }
+    });
     const box = h("div", { class: "baum-frage-box", role: "group", "aria-labelledby": frageId },
       h("h3", { class: "baum-frage", id: frageId, text: satz(k.frage) }),
       knoepfe.length ? h("div", { class: "baum-antworten" }, knoepfe) : null,
+      anders,
       frei);
     buehne.appendChild(box);
     punkteZeigen();
@@ -1755,8 +1788,10 @@ function blockAuswahl(b, ctx) {
     });
     return knopf;
   });
-  const keine = typeof ctx.fallSuchen === "function"
-    ? h("button", { type: "button", class: "knopf-leise-e", text: "Keine davon", onclick: function () { ctx.fallSuchen(); } })
+  // „Keine davon“ → Eingabefeld (ctx.keineDavon, Vincent 09.10.); ohne: Fallsuche wie bisher.
+  const keineZiel = typeof ctx.keineDavon === "function" ? ctx.keineDavon : (typeof ctx.fallSuchen === "function" ? ctx.fallSuchen : null);
+  const keine = keineZiel
+    ? h("button", { type: "button", class: "knopf-leise-e", text: "Keine davon", onclick: function () { keineZiel(); } })
     : null;
   box.appendChild(h("h3", { class: "auswahl-frage", text: satz(b.frage || "Welche Anlage ist gemeint?") }));
   box.appendChild(h("div", { class: "auswahl-knoepfe", role: "group", "aria-label": satz(b.frage || "Auswahl") }, knoepfe));

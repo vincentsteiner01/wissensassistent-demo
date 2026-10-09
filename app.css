@@ -322,8 +322,10 @@ body { overflow-x: hidden; }
 .akte-adresse .ort { color: var(--text-2); font-size: var(--gr-4); }
 .akte-id { margin-top: var(--a-2); color: var(--text-3); font-size: var(--gr-2); }
 .akte-kopf-knoepfe { display: flex; align-items: center; gap: var(--a-2); flex-shrink: 0; }
-/* „Nächster Kunde“: gut sichtbar neben dem Namen, aber kleiner als ein Hauptknopf. */
-.naechster-kunde { min-height: 36px; padding: 6px 12px; font-size: var(--gr-2); gap: 6px; }
+/* „Nächster Kunde“: gut sichtbar neben dem Namen, aber kleiner als ein Hauptknopf.
+   Mit .knopf-e davor: .knopf-e steht weiter unten und gewann sonst – der Knopf war
+   so groß, dass „Familie Petersen“ mitten im Wort umbrach (09.10.). */
+.knopf-e.naechster-kunde { min-height: 36px; padding: 6px 12px; font-size: var(--gr-2); gap: 6px; }
 .akte-auf-knopf { display: none; }
 .akte-auf-knopf .ikon { transition: transform var(--dauer-1) var(--ease); }
 .akte.auf .akte-auf-knopf .ikon { transform: rotate(180deg); }
@@ -349,8 +351,27 @@ body { overflow-x: hidden; }
 .teil-pfeil { transition: transform var(--dauer-1) var(--ease); }
 .akte-teil-kopf[aria-expanded="true"] .teil-pfeil { transform: rotate(180deg); }
 
-.geraete { list-style: none; display: grid; gap: var(--a-3); margin-top: var(--a-3); }
-.geraet { display: flex; align-items: center; gap: var(--a-3); }
+.geraete { list-style: none; display: grid; gap: var(--a-1); margin-top: var(--a-2); }
+/* Jedes Gerät ist ein Knopf (Vincent 09.10.): Klick → häufigste Probleme als Chips im Chat. */
+.geraet {
+  display: flex;
+  align-items: center;
+  gap: var(--a-3);
+  width: calc(100% + 16px);
+  min-height: 52px;
+  margin: 0 -8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--r-m);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  transition: background-color var(--dauer-1) var(--ease);
+}
+.geraet:hover { background: var(--flaeche); }
+.geraet:hover .geraet-ikon { background: var(--marke-flaeche); color: var(--marke-text); }
+.geraet-pfeil { flex: none; margin-left: auto; color: var(--text-3); }
+.geraet:hover .geraet-pfeil { color: var(--marke-text); }
 .geraet-ikon { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: var(--r-m); background: var(--karte-2); color: var(--text-2); }
 .geraet-text { display: flex; flex-direction: column; min-width: 0; }
 .geraet-text strong { font-size: var(--gr-4); font-weight: var(--gewicht-fett); }
@@ -797,6 +818,25 @@ div.warn-zeile { cursor: default; }
 .baum-feld:focus { outline: none; border-color: var(--marke-fokus); box-shadow: 0 0 0 3px var(--marke-flaeche-2); }
 .baum-frei-senden { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border: 0; border-radius: 50%; background: var(--karte-2); color: var(--text); }
 .baum-frei-senden:hover { background: var(--marke-flaeche); color: var(--marke-text); }
+/* Eigene Antwort (Vincent 09.10.): leiser Chip unter den Antworten, klappt das Feld auf.
+   Auch „Etwas anderes …“ an der Geräte-Karte. */
+.baum-anders {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  margin-top: var(--a-3);
+  padding: 6px 14px;
+  border: 1px solid var(--linie);
+  border-radius: var(--r-voll);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--gr-3);
+  font-weight: var(--gewicht-mittel);
+  transition: border-color var(--dauer-1) var(--ease), color var(--dauer-1) var(--ease);
+}
+.baum-anders:hover { border-color: var(--marke-knopf); color: var(--marke-text); }
+.baum-antworten .baum-anders { margin-top: 0; min-height: 48px; padding: 10px 18px; }
 .baum-punkte { display: flex; justify-content: flex-end; gap: 6px; margin-top: var(--a-4); }
 .baum-punkte:empty { display: none; }
 .baum-punkte i { display: block; width: 6px; height: 6px; border-radius: 3px; background: var(--linie-stark); }
@@ -1214,7 +1254,7 @@ span.quellen-seite, span.quellen-link { color: var(--text); text-decoration: non
   .akte.auf .akte-mehr-wrap { max-height: 55dvh; overflow: auto; overscroll-behavior: contain; margin-inline: -8px; padding-inline: 8px; }
   .akte .akte-teil { margin-top: var(--a-3); }
   .akte-auf-knopf { display: grid; }
-  .naechster-kunde { min-height: 44px; }
+  .knopf-e.naechster-kunde { min-height: 44px; }
   .suche { padding: var(--a-3) var(--a-4); border-radius: var(--r-l); }
   .suche-titel { display: none; }
   .suchfeld { min-height: 48px; padding: 0 var(--a-3); gap: 6px; }
@@ -1264,4 +1304,6 @@ span.quellen-seite, span.quellen-link { color: var(--text); text-decoration: non
   .verlauf-zeile { grid-template-columns: 56px minmax(0, 1fr) auto; }
   .quelle-seite::after { inset: -12px -6px; }
   .antwort-chip-aendern { min-height: 36px; }
+  .baum-anders { min-height: 44px; }
+  .baum-antworten .baum-anders { flex: 1 1 auto; justify-content: center; }
 }
