@@ -15,7 +15,11 @@
 //           ladeBild(id) → Promise<string> }
 // Optional (13.3.9, 14.3.14): pfad, akteDaneben, oeffneAkte(anlageId, abschnitt?),
 //   oeffneQuelle(id), ladeSeitenbild, rueckfrageTasten, oeffneWoher(knopf),
-//   fallSuchen(), keineDavon(); dazu (nur App, additiv): oeffneBild(bild, knopf), toast(text, art).
+//   fallSuchen(), keineDavon(); dazu (nur App, additiv): oeffneBild(bild, knopf), toast(text, art),
+//   onLage(lage) (SPEC 14.10: die Pille der Antwort hat sich beim Klicken im Fragebaum geändert).
+// Ampel (SPEC 14.10, additiv): antwort.lage → Pille am Kopf, causes.items[].am_telefon →
+//   grüne Karte, fragebaum.knoten[].antworten[].richtung → Punkt am Chip. Fehlt etwas
+//   davon (älterer Server), sieht alles aus wie vorher.
 // Fehlt etwas davon (Prüfseite, Einrichtung-Vorschau), zeigt der Renderer die
 // ausführliche Fassung oder deaktiviert den Knopf – er wirft nie.
 //
@@ -843,6 +847,142 @@ function blockAlarm(b, ctx) {
   return box;
 }
 
+// --- Ampel (SPEC 14.10) -----------------------------------------------------------
+// Vincent 12.10.: „Der Kundenbetreuer soll wirklich in grünen Boxen Lösungen
+// bekommen, die er direkt am Telefon mitteilen kann“ und „mehr mit einfachen
+// Farbmerkmalen spielen: richtiger Pfad vs. schlechter oder unklarer“.
+// Eine Bedeutung je Farbe (14.10.1): grün = am Telefon lösbar / auf gutem Weg,
+// gelb = schlechter oder unklarer, rot = nur die Stopp-Regel, grau = wird
+// eingegrenzt. Die Farbe setzt der Server (antwort.lage, am_telefon,
+// richtung); hier wird sie nur gezeigt – und im Zweifel weggelassen: lieber
+// eine grüne Box zu wenig als eine falsche. Farbe nie allein (Punkt + Wort).
+
+/** Je höher, desto schlechter. Grau heißt „noch keine Aussage“ und deckelt nichts. */
+const AMPEL_RANG = { gruen: 1, grau: 2, gelb: 3, rot: 4 };
+const RICHTUNG_LAGE = {
+  gut: { farbe: "gruen", text: "Auf gutem Weg" },
+  schlecht: { farbe: "gelb", text: "Eher Techniker" },
+  offen: { farbe: "grau", text: "Wird eingegrenzt" },
+};
+
+function istStopp(b) {
+  return !!(b && b.type === "warning" && b.level === "stop");
+}
+
+function ganzeZahl(n) {
+  return typeof n === "number" && isFinite(n) && Math.floor(n) === n && n >= 0;
+}
+
+/** Anführungszeichen, die das Modell selbst gesetzt hat, weg – die Karte setzt „…“. */
+function ohneRandZeichen(t) {
+  return String(t).trim().replace(/^[„“”"»«‚‘’']+/, "").replace(/[„“”"»«‚‘’']+$/, "").trim();
+}
+
+/**
+ * Grüne Lösung (14.10.3/14.10.5): nur mit Satz und mindestens einer Quelle –
+ * der Server prüft das ausführlich, hier nur die Form. belegt nur, wenn die
+ * Zahlen zusammenpassen (sie kommen aus SQL; passen sie nicht, keine Zeile).
+ */
+export function telefonVon(u) {
+  const t = u && u.am_telefon && typeof u.am_telefon === "object" ? u.am_telefon : null;
+  if (!t || typeof t.satz !== "string") return null;
+  const text = ohneRandZeichen(ohneMarkdown(t.satz)).replace(/\s+/g, " ");
+  if (!text || text.length > 400) return null;
+  if (!Array.isArray(u.source_ids) || !u.source_ids.length) return null;
+  const b = t.belegt && typeof t.belegt === "object" ? t.belegt : null;
+  const belegt = b && ganzeZahl(b.faelle) && ganzeZahl(b.ohne_einsatz) && b.faelle >= 1 && b.ohne_einsatz >= 1 && b.ohne_einsatz <= b.faelle
+    ? { faelle: b.faelle, ohne_einsatz: b.ohne_einsatz }
+    : null;
+  // Die Karte setzt „…“ – Anführungen im Satz werden deshalb zu ‚…‘ (deutsche Typografie).
+  return { satz: typo(text).replace(/„/g, "‚").replace(/“/g, "‘"), belegt: belegt };
+}
+
+/** Gibt es in der Antwort eine Lösung, die grün gezeigt wird? (Nie bei Stopp.) */
+function hatGrueneLoesung(antwort) {
+  const bloecke = antwort && Array.isArray(antwort.blocks) ? antwort.blocks : [];
+  if (bloecke.some(istStopp)) return false;
+  return bloecke.some(function (b) {
+    return b && b.type === "causes" && Array.isArray(b.items) && b.items.some(function (u) { return !!telefonVon(u); });
+  });
+}
+
+/**
+ * Lage einer Antwort (antwort.lage, 14.10.4) für die Anzeige – oder null.
+ * Ohne lage (älterer Server) keine Pille: Die Oberfläche erfindet keine Farbe.
+ * Absicherungen: Stopp-Box → immer rot „Stopp“; rot ohne Stopp-Box → gelb;
+ * grün ohne grüne Lösung → keine Pille.
+ */
+export function lageVon(antwort) {
+  if (!antwort || typeof antwort !== "object") return null;
+  const l = antwort.lage;
+  if (!l || typeof l !== "object" || !AMPEL_RANG[l.farbe] || typeof l.text !== "string") return null;
+  const text = ohneMarkdown(l.text).trim();
+  if (!text || text.length > 40) return null;
+  const bloecke = Array.isArray(antwort.blocks) ? antwort.blocks : [];
+  if (bloecke.some(istStopp)) return l.farbe === "rot" ? { farbe: "rot", text: typo(text) } : { farbe: "rot", text: "Stopp" };
+  if (l.farbe === "rot") return { farbe: "gelb", text: "Achtung" };
+  if (l.farbe === "gruen" && !hatGrueneLoesung(antwort)) return null;
+  return { farbe: l.farbe, text: typo(text) };
+}
+
+/**
+ * Lage aus dem Pfad des Fragebaums (14.10.5): irgendein „schlecht“ → gelb
+ * „Eher Techniker“, sonst irgendein „gut“ → grün „Auf gutem Weg“, sonst grau.
+ * Ohne beantwortete Frage: null (die Pille zeigt dann die Lage des Servers).
+ */
+export function pfadLage(pfad) {
+  const liste = Array.isArray(pfad) ? pfad : [];
+  if (!liste.length) return null;
+  if (liste.some(function (p) { return p && p.richtung === "schlecht"; })) return RICHTUNG_LAGE.schlecht;
+  if (liste.some(function (p) { return p && p.richtung === "gut"; })) return RICHTUNG_LAGE.gut;
+  return RICHTUNG_LAGE.offen;
+}
+
+/**
+ * Was die Pille zeigt, wenn Server und Pfad etwas sagen: nie besser als der
+ * Server – sagt er gelb oder rot, bleibt es dabei (bei Gleichstand gilt sein
+ * Wort). Grau heißt auf beiden Seiten „noch keine Aussage“ und deckelt nichts:
+ * Sonst bliebe ein Fragebaum (Server: grau) für immer grau.
+ */
+export function lageKombiniert(server, pfad) {
+  if (!pfad || pfad.farbe === "grau") return server || pfad || null;
+  if (!server || server.farbe === "grau") return pfad;
+  return AMPEL_RANG[server.farbe] >= AMPEL_RANG[pfad.farbe] ? server : pfad;
+}
+
+/** Richtung einer Fragebaum-Antwort: fehlt/ungültig/„weiß nicht“ → offen (14.10.3). */
+function richtungVon(a) {
+  const r = a && typeof a.richtung === "string" ? a.richtung : "";
+  if (WEISS_NICHT.test(String(a && a.label || ""))) return "offen";
+  return r === "gut" || r === "schlecht" ? r : "offen";
+}
+
+/** Pille „● Wort“. lage = {farbe, text}. */
+export function lagePille(lage, extraKlasse) {
+  const el = h("p", { class: "lage" + (extraKlasse ? " " + extraKlasse : "") },
+    h("span", { class: "lage-punkt", "aria-hidden": "true" }),
+    h("span", { class: "sr-only", text: "Lage: " }),
+    h("span", { class: "lage-text" }));
+  lageSetzen(el, lage);
+  return el;
+}
+
+/** Pille an Ort und Stelle umfärben (die Farbe gleitet, das Element bleibt). null → versteckt. */
+export function lageSetzen(el, lage) {
+  if (!el) return;
+  ["gruen", "gelb", "rot", "grau"].forEach(function (f) { el.classList.remove("lage-" + f); });
+  if (!lage) {
+    el.hidden = true;
+    el.removeAttribute("data-lage");
+    return;
+  }
+  el.classList.add("lage-" + lage.farbe);
+  el.setAttribute("data-lage", lage.farbe);
+  const t = el.querySelector(".lage-text");
+  if (t && t.textContent !== lage.text) t.textContent = lage.text;
+  el.hidden = false;
+}
+
 // --- Fragebaum (14.3.6) -----------------------------------------------------------
 
 /** Nachricht im Format von SPEC 8: „{label}: {antwort} · …“ (kein Doppelpunkt nach ?, ., !, :). */
@@ -892,13 +1032,26 @@ function baumKarte(typ, baum, ctx) {
     return k ? String(k.kurz || "").trim() : "";
   }
 
+  /**
+   * Ampel im Pfad (14.10.5): Jede gewählte Antwort bekommt am Chip einen Punkt
+   * in ihrer Richtung (gut grün, schlecht gelb, offen ohne); die Pille der
+   * Antwort folgt live (ctx.lagePfad, renderAntwort). Die Knöpfe davor bleiben
+   * neutral – kein Vorsagen.
+   */
+  function lageMelden() {
+    if (typeof ctx.lagePfad === "function") ctx.lagePfad(pfadLage(pfad));
+  }
+
   function chipsZeigen(neuIndex) {
     leeren(chips);
     pfad.forEach(function (p, i) {
       const k = baum.knoten[p.id] || {};
       const kurz = kurzVon(p.id);
-      const chip = h("span", { class: "antwort-chip", role: "listitem", title: satz(k.frage || "") },
-        h("span", { class: "antwort-chip-text" }, kurz ? satz(kurz) + ": " : null, h("strong", { text: typo(p.label) })),
+      const r = p.richtung === "gut" || p.richtung === "schlecht" ? p.richtung : "";
+      const chip = h("span", { class: "antwort-chip" + (r ? " ist-" + r : ""), role: "listitem", title: satz(k.frage || ""), "data-richtung": p.richtung || "offen" },
+        r ? h("span", { class: "antwort-chip-punkt", "aria-hidden": "true" }) : null,
+        h("span", { class: "antwort-chip-text" }, kurz ? satz(kurz) + ": " : null, h("strong", { text: typo(p.label) }),
+          r ? h("span", { class: "sr-only", text: r === "gut" ? " – gutes Zeichen" : " – eher Techniker" }) : null),
         gesendet ? null : h("button", {
           type: "button",
           class: "antwort-chip-aendern",
@@ -932,7 +1085,7 @@ function baumKarte(typ, baum, ctx) {
         class: "baum-antwort" + (WEISS_NICHT.test(label) ? " ist-leise" : ""),
         "data-wert": label,
         title: i < 4 ? "Taste " + (i + 1) : null,
-        onclick: function () { antworte({ label: label, weiter: a.weiter }); },
+        onclick: function () { antworte({ label: label, weiter: a.weiter, richtung: richtungVon(a) }); },
       }, typo(label));
     });
     // Eigene Antwort bei JEDER Frage (Vincent 09.10.: „Es fehlt der eigene
@@ -961,7 +1114,8 @@ function baumKarte(typ, baum, ctx) {
         fokus(feld);
         return;
       }
-      antworte({ label: v, weiter: freiWeiter });
+      // Eigene Antwort = offen (14.10.5): Die KI hat sie nicht eingeordnet.
+      antworte({ label: v, weiter: freiWeiter, richtung: "offen" });
     };
     const frei = h("div", { class: "baum-frei", hidden: knoepfe.length > 0 }, feld,
       h("button", { type: "button", class: "baum-frei-senden", "aria-label": "Antwort übernehmen", onclick: nimm }, ikon("pfeil-rechts", { groesse: 18, strich: 2 })));
@@ -1014,8 +1168,9 @@ function baumKarte(typ, baum, ctx) {
   function antworte(a) {
     if (gesendet || !aktuell) return;
     meldung.textContent = "";
-    pfad.push({ id: aktuell, label: a.label });
+    pfad.push({ id: aktuell, label: a.label, richtung: a.richtung || "offen" });
     chipsZeigen(pfad.length - 1);
+    lageMelden();
     if (a.weiter === "fertig" || !baum.knoten[a.weiter]) {
       fertig();
       return;
@@ -1030,11 +1185,14 @@ function baumKarte(typ, baum, ctx) {
     pfad = pfad.slice(0, i);
     meldung.textContent = "";
     chipsZeigen(-1);
+    lageMelden();
     frageZeigen(-1, true);
   }
 
   function fertig() {
     const text = baum.zusammenfassen(pfad);
+    // A1 „Notiz fürs Ticket“ (SPEC 14.9): derselbe Pfad als Zeile „Geprüft:“.
+    const geprueft = typeof baum.geprueft === "function" ? baum.geprueft(pfad) : text;
     aktuell = null;
     leeren(buehne);
     if (typeof ctx.onAntworten !== "function") {
@@ -1048,7 +1206,7 @@ function baumKarte(typ, baum, ctx) {
     gesendet = true;
     karte.classList.add("ist-gesendet");
     // Netz zuerst: Die Anfrage startet im selben Takt wie der Klick.
-    const angenommen = ctx.onAntworten(text);
+    const angenommen = ctx.onAntworten(text, { geprueft: geprueft });
     if (angenommen === false) {
       gesendet = false;
       karte.classList.remove("ist-gesendet");
@@ -1056,6 +1214,7 @@ function baumKarte(typ, baum, ctx) {
       const letzte = pfad.pop();
       aktuell = letzte ? letzte.id : baum.start;
       chipsZeigen(-1);
+      lageMelden();
       frageZeigen(0, false);
       meldung.textContent = "Bitte warten, bis die laufende Antwort fertig ist.";
       return;
@@ -1112,6 +1271,14 @@ function blockFragebaum(b, ctx) {
         const k = knoten[p.id] || {};
         const kurz = String(k.kurz || "").trim();
         return kurz ? ohneMarkdown(kurz) + ": " + p.label : ohneMarkdown(k.frage || "") + " " + p.label;
+      }).join(" · ");
+    },
+    // Für die Notiz ohne Doppelpunkt: „Ventil trocken · Vordruck nie geprüft“.
+    geprueft: function (pfad) {
+      return pfad.map(function (p) {
+        const k = knoten[p.id] || {};
+        const kurz = String(k.kurz || "").trim();
+        return (kurz ? ohneMarkdown(kurz) : ohneMarkdown(k.frage || "")) + " " + p.label;
       }).join(" · ");
     },
   }, ctx);
@@ -1191,6 +1358,14 @@ function evidenzBalken(ev) {
  *   - ctx.loesungenZu (Fragebaum in derselben Antwort): erst die Fragen, die
  *     Lösungen liegen zu hinter einer leisen Zeile. Ältere Lösungen desselben
  *     Falls klappt app.js über loesungenEinklappen() zu.
+ *
+ * Grüne Karte (SPEC 14.10.5, Vincent 12.10.): Hat der Server eine Lösung als
+ * „am Telefon lösbar“ geprüft (am_telefon), steht sie grün getönt und offen da:
+ * Telefon-Symbol + „Am Telefon lösbar“, darunter „Sagen Sie dem Kunden“ und der
+ * Satz groß als Zitat – das darf der Kundenbetreuer wörtlich sagen. Leise die
+ * Zahl aus SQL („Bisher 3 von 4 ähnlichen Fällen am Telefon gelöst“), „Hat
+ * geklappt“ als grüner Hauptknopf, „Warum?“ (check/why) zugeklappt. Nie neben
+ * einer Stopp-Box (ctx.mitStopp). Technik-Karten bleiben, wie sie sind.
  */
 function blockUrsachen(b, ctx) {
   const items = (Array.isArray(b.items) ? b.items : []).filter(Boolean);
@@ -1201,33 +1376,52 @@ function blockUrsachen(b, ctx) {
   }
   const techniker = !!ctx.fuerTechniker;
   const netz = !techniker && !!ctx.mitUebergabe;
+  const telefone = items.map(function (u) { return ctx.mitStopp ? null : telefonVon(u); });
+  // Mehrere grüne Karten: die Nummer sichtbar im Kopf („Am Telefon lösbar · Lösung 2“),
+  // sonst verliert der Kundenbetreuer nach „Klappt nicht? Lösung 2“ die Zählung.
+  const mehrereGruen = telefone.filter(Boolean).length > 1;
   const karten = items.map(function (u, i) {
     const ev = evidenzVon(u);
     const titel = satz(u.title || "");
+    const tel = telefone[i];
     const koerperId = neueId("loesung");
     const ohneQuelle = !Array.isArray(u.source_ids) || !u.source_ids.length;
     const kopfZahl = ev ? h("span", { class: "loesung-zahl zahl", text: zahl(ev.matching) + " von " + zahl(ev.similar_cases) }) : null;
+    const kicker = tel
+      ? h("span", { class: "loesung-nr telefon-marke" },
+        h("span", { class: "telefon-ikon", "aria-hidden": "true" }, ikon("telefon", { groesse: 14, strich: 2 })),
+        h("span", { text: "Am Telefon lösbar" }),
+        mehrereGruen ? h("span", { class: "telefon-nr", text: "· Lösung " + (i + 1) }) : h("span", { class: "sr-only", text: " · Lösung " + (i + 1) }))
+      : h("span", { class: "loesung-nr", text: "Lösung " + (i + 1) });
     const knopf = h("button", { type: "button", class: "loesung-kopf", "aria-expanded": "false", "aria-controls": koerperId },
       h("span", { class: "loesung-kopf-text" },
-        h("span", { class: "loesung-nr", text: "Lösung " + (i + 1) }),
+        kicker,
         h("span", { class: "loesung-titel" }, h("span", { text: titel }),
           ohneQuelle ? h("span", { class: "ohne-quelle-ikon", title: "ohne Quelle" },
             ikon("achtung", { groesse: 14, label: "ohne Quelle" })) : null)),
       h("span", { class: "loesung-kopf-rechts" }, kopfZahl, ikon("runter", { groesse: 18, klasse: "loesung-pfeil" })));
     let weiter = null;
     if (i + 1 < items.length) {
+      // Von einer grünen Karte aus geht es am Telefon weiter – also „Klappt nicht?“.
       weiter = h("button", { type: "button", class: "weiter-knopf", onclick: function () { oeffne(i + 1, true); } },
-        h("span", { text: (techniker ? "" : "Klappt nicht? ") + "Lösung " + (i + 2) }), ikon("weiter", { groesse: 16, strich: 2 }));
+        h("span", { text: (techniker && !tel ? "" : "Klappt nicht? ") + "Lösung " + (i + 2) }), ikon("weiter", { groesse: 16, strich: 2 }));
     } else if (netz) {
       weiter = h("button", { type: "button", class: "weiter-knopf", onclick: function () { zurUebergabe(); } },
         h("span", { text: "Klappt nicht? Übergeben" }), ikon("weiter", { groesse: 16, strich: 2 }));
     }
-    const koerper = h("div", { class: "loesung-koerper", id: koerperId, hidden: true },
-      u.check ? absaetze(u.check, "loesung-wie") : null,
-      u.why ? absaetze(u.why, "loesung-warum") : null,
-      ev || weiter ? h("div", { class: "loesung-fuss" }, ev ? evidenzBalken(ev) : h("span"), weiter) : null);
+    const geklappt = geklapptKnopf(u, i, titel, weiter, !!tel);
+    const fuss = ev || weiter || geklappt
+      ? h("div", { class: "loesung-fuss" }, ev ? evidenzBalken(ev) : tel ? null : h("span"),
+        geklappt || weiter ? h("div", { class: "loesung-knoepfe" }, geklappt, weiter) : null)
+      : null;
+    const koerper = tel
+      ? h("div", { class: "loesung-koerper", id: koerperId, hidden: true }, telefonInhalt(u, tel), fuss)
+      : h("div", { class: "loesung-koerper", id: koerperId, hidden: true },
+        u.check ? absaetze(u.check, "loesung-wie") : null,
+        u.why ? absaetze(u.why, "loesung-warum") : null,
+        fuss);
     const karte = h("div", {
-      class: "loesung",
+      class: "loesung" + (tel ? " ist-telefon" : ""),
       "data-quellen": idListe(u.source_ids) || null,
       "data-zitat-titel": "Lösung " + (i + 1) + " · " + titel,
       "data-key": u.key ? String(u.key) : null,
@@ -1237,8 +1431,94 @@ function blockUrsachen(b, ctx) {
       if (auf) zu(i);
       else oeffne(i, false);
     });
-    return { karte: karte, knopf: knopf, koerper: koerper, kopfZahl: kopfZahl };
+    return { karte: karte, knopf: knopf, koerper: koerper, kopfZahl: kopfZahl, telefon: !!tel };
   });
+
+  /**
+   * Inhalt der grünen Karte: „Sagen Sie dem Kunden“, der Satz als Zitat, leise
+   * die Zahl aus SQL, dann „Warum?“ (zu) mit check und why.
+   */
+  function telefonInhalt(u, tel) {
+    const teile = [
+      h("p", { class: "telefon-sagen", text: "Sagen Sie dem Kunden" }),
+      h("blockquote", { class: "telefon-satz" }, h("p", { text: "„" + tel.satz + "“" })),
+    ];
+    const warumId = neueId("warum");
+    const hatWarum = !!(u.check || u.why);
+    const warum = hatWarum
+      ? h("button", { type: "button", class: "telefon-warum-knopf", "aria-expanded": "false", "aria-controls": warumId },
+        h("span", { text: "Warum?" }), ikon("runter", { groesse: 16, klasse: "mehr-pfeil" }))
+      : null;
+    const beleg = tel.belegt
+      ? h("span", { class: "telefon-beleg", title: "Aus den geklärten Fällen in der Datenbank, nicht von der KI." },
+        "Bisher " + zahl(tel.belegt.ohne_einsatz) + " von " + zahl(tel.belegt.faelle) + " ähnlichen Fällen am Telefon gelöst")
+      : null;
+    if (beleg || warum) teile.push(h("div", { class: "telefon-zeile" }, beleg, warum));
+    if (warum) {
+      const inhalt = h("div", { class: "telefon-warum", id: warumId, hidden: true },
+        u.check ? absaetze(u.check, "loesung-wie") : null,
+        u.why ? absaetze(u.why, "loesung-warum") : null);
+      warum.addEventListener("click", function () {
+        const auf = warum.getAttribute("aria-expanded") !== "true";
+        warum.setAttribute("aria-expanded", auf ? "true" : "false");
+        warum.classList.toggle("ist-auf", auf);
+        inhalt.hidden = !auf;
+        if (auf) bewege(inhalt, [{ opacity: 0, transform: "translateY(-4px)" }, { opacity: 1, transform: "none" }], 240);
+      });
+      teile.push(inhalt);
+    }
+    return teile;
+  }
+
+  /**
+   * „Hat geklappt“ (SPEC 14.9, A2): ein leiser Knopf je Lösung. Ein Klick
+   * speichert über die Aktion `ergebnis` (Server: fall_ergebnisse, einmal je
+   * Fall und Lösung) und wird zu „Notiert – zählt in der Monatsauswertung“.
+   * „7 von 11“ ändert sich dadurch nicht – bestätigte Ursachen kommen nur über
+   * „Ursache dokumentieren“ bzw. „Einsatz dokumentieren“. Ohne ctx.onAktion
+   * (Einrichtung-Vorschau) kein Knopf.
+   */
+  function geklapptKnopf(u, i, titel, weiter, amTelefon) {
+    if (typeof ctx.onAktion !== "function") return null;
+    // Gegenprüfung 12.10.: Ohne Anlage im Fall kann der Server nichts zählen (14.9: 409) –
+    // dann gar kein Knopf statt eines Fehlers unter der grünen Karte (T9, Fragen ohne Kunde).
+    if (typeof ctx.fallAnlage === "function" && !ctx.fallAnlage()) return null;
+    const status = h("span", { class: "geklappt-status", role: "status", tabindex: "-1" });
+    // Auf der grünen Karte der Hauptknopf (14.10.5), sonst leise.
+    const knopf = h("button", { type: "button", class: "geklappt-knopf" + (amTelefon ? " ist-haupt" : "") },
+      ikon("haken", { groesse: 15, strich: 2.2 }), h("span", { text: "Hat geklappt" }));
+    knopf.addEventListener("click", function () {
+      if (knopf.disabled) return;
+      // Vor disabled merken: Chrome nimmt einem deaktivierten Knopf den Fokus.
+      const hatteFokus = document.activeElement === knopf;
+      knopf.disabled = true;
+      status.textContent = "";
+      const anlage = typeof ctx.fallAnlage === "function" ? ctx.fallAnlage() : null;
+      const payload = {
+        ergebnis: "geklappt",
+        loesung_nr: i + 1,
+        loesung_key: u.key ? String(u.key) : null,
+        source_ids: Array.isArray(u.source_ids) ? u.source_ids.map(String) : [],
+      };
+      if (anlage) payload.anlage_id = String(anlage);
+      // Grüne Karte: zählt als „am Telefon gelöst“ (fall_ergebnisse.am_telefon, 14.10.5).
+      if (amTelefon) payload.am_telefon = true;
+      aktionAusfuehren(ctx, { action: "ergebnis", label: "Hat geklappt", payload: payload, titel: titel }).then(function () {
+        knopf.hidden = true;
+        // „Klappt nicht? …“ passt nicht mehr, wenn es geklappt hat.
+        if (weiter) weiter.hidden = true;
+        leeren(status).appendChild(ikon("haken", { groesse: 15, strich: 2.2 }));
+        status.appendChild(h("span", { text: "Notiert – zählt in der Monatsauswertung" }));
+        status.classList.add("ist-notiert");
+        if (hatteFokus) fokus(status);
+      }, function (e) {
+        knopf.disabled = false;
+        if (hatteFokus) fokus(knopf);
+        status.textContent = "Nicht notiert: " + (e && e.message ? e.message : "unbekannter Fehler");
+      });
+    });
+    return h("span", { class: "geklappt" }, knopf, status);
+  }
 
   function zu(n) {
     const k = karten[n];
@@ -1253,6 +1533,11 @@ function blockUrsachen(b, ctx) {
       if (i !== n) zu(i);
     });
     const k = karten[n];
+    // „Klappt nicht? Lösung 2“ von einer offenen grünen Karte zu einer Karte hinter der leisen Zeile.
+    if (liste.hidden && liste.contains(k.karte)) {
+      liste.hidden = false;
+      auf.setAttribute("aria-expanded", "true");
+    }
     k.karte.classList.add("ist-offen");
     k.knopf.setAttribute("aria-expanded", "true");
     k.koerper.hidden = false;
@@ -1286,8 +1571,30 @@ function blockUrsachen(b, ctx) {
   }
 
   const liste = h("div", { class: "loesungen-liste", id: neueId("loesungen") });
-  if (techniker) liste.appendChild(h("p", { class: "loesungen-kicker", text: "Prüft der Techniker vor Ort:" }));
-  karten.forEach(function (k) { liste.appendChild(k.karte); });
+  // Grüne Karten stehen vorn (der Server sortiert). Mit Fragebaum (ctx.loesungenZu)
+  // bleiben sie trotzdem offen sichtbar – Vincent 12.10.: „in grünen Boxen Lösungen,
+  // die er direkt am Telefon mitteilen kann“ (14.10.5 „offen statt zugeklappt“);
+  // nur die Technik-Karten liegen hinter der leisen Zeile.
+  let gruenVorn = 0;
+  while (gruenVorn < karten.length && karten[gruenVorn].telefon) gruenVorn++;
+  const gruenOffen = !!ctx.loesungenZu && gruenVorn > 0;
+  const gruenListe = gruenOffen ? h("div", { class: "loesungen-liste loesungen-gruen" }) : null;
+  // „Prüft der Techniker vor Ort:“ steht vor der ersten Technik-Karte – grüne
+  // Karten (am Telefon) stehen davor und gehören nicht dazu. Stehen grüne Karten
+  // davor, sagt eine leise Zeile, dass danach der Techniker kommt (Gegenprüfung
+  // 12.10.: bei T17 trug die Technik-Karte sonst keine Marke).
+  let kickerDa = false;
+  karten.forEach(function (k, i) {
+    if (gruenListe && i < gruenVorn) {
+      gruenListe.appendChild(k.karte);
+      return;
+    }
+    if (!k.telefon && !kickerDa && (techniker || gruenVorn > 0)) {
+      liste.appendChild(h("p", { class: "loesungen-kicker", text: techniker ? "Prüft der Techniker vor Ort:" : "Sonst: Techniker vor Ort" }));
+      kickerDa = true;
+    }
+    liste.appendChild(k.karte);
+  });
   // Leise Zeile zum Auf- und Zuklappen – sichtbar nur, solange die Lösungen
   // zu sind oder einmal zu waren (ctx.loesungenZu, loesungenEinklappen).
   const auf = h("button", { type: "button", class: "loesungen-auf", hidden: true, "aria-expanded": "true", "aria-controls": liste.id },
@@ -1299,22 +1606,43 @@ function blockUrsachen(b, ctx) {
     if (!offen) bewege(liste, [{ opacity: 0, transform: "translateY(-4px)" }, { opacity: 1, transform: "none" }], 240);
   });
   box.setAttribute("data-anzahl", String(items.length));
+  if (gruenListe) box.appendChild(gruenListe);
   box.appendChild(auf);
   box.appendChild(liste);
-  // Lösung 1 offen – ohne Bewegung beim ersten Zeichnen.
-  const erste = karten[0];
-  erste.karte.classList.add("ist-offen");
-  erste.knopf.setAttribute("aria-expanded", "true");
-  erste.koerper.hidden = false;
-  if (erste.kopfZahl) erste.kopfZahl.hidden = true;
-  if (ctx.loesungenZu) loesungenZuklappen(box, (items.length === 1 ? "Lösung" : "Lösungen") + " schon jetzt ansehen (" + items.length + ")");
+  if (gruenListe && gruenVorn === karten.length) liste.hidden = true;
+  // Lösung 1 offen – ohne Bewegung beim ersten Zeichnen. Die grüne Karte steht
+  // vorn (der Server sortiert) und damit offen da (14.10.5); weitere grüne Karten
+  // zeigen ihren grünen Kopf und gehen wie jede andere mit „Klappt nicht?“ auf
+  // (eine offen – sonst stünden zwei Sätze untereinander).
+  let offenNr = 0;
+  for (let j = karten.length - 1; j >= 0; j--) if (karten[j].telefon) offenNr = j;
+  karten.forEach(function (k, i) {
+    if (i !== offenNr) return;
+    k.karte.classList.add("ist-offen");
+    k.knopf.setAttribute("aria-expanded", "true");
+    k.koerper.hidden = false;
+    if (k.kopfZahl) k.kopfZahl.hidden = true;
+  });
+  if (gruenOffen) {
+    // Grün bleibt offen; die Technik-Karten (falls es welche gibt) liegen zu.
+    const rest = karten.length - gruenVorn;
+    if (rest > 0) loesungenZuklappen(box, (rest === 1 ? "Weitere Lösung" : "Weitere Lösungen") + " ansehen (" + rest + ")");
+  } else if (ctx.loesungenZu) {
+    loesungenZuklappen(box, (items.length === 1 ? "Lösung" : "Lösungen") + " schon jetzt ansehen (" + items.length + ")");
+    // Liegt darunter eine grüne Karte, sagt die Zeile es mit dem Telefon-Symbol (ohne mehr Text).
+    if (telefone.some(Boolean)) {
+      auf.classList.add("ist-telefon");
+      auf.insertBefore(h("span", { class: "telefon-ikon", "aria-hidden": "true" }, ikon("telefon", { groesse: 13, strich: 2 })), auf.firstChild);
+      auf.appendChild(h("span", { class: "sr-only", text: ", darunter am Telefon lösbar" }));
+    }
+  }
   return box;
 }
 
 /** Lösungen eines causes-Blocks hinter eine leise Zeile legen (wieder aufklappbar). */
 function loesungenZuklappen(box, text) {
   const auf = box.querySelector(".loesungen-auf");
-  const liste = box.querySelector(".loesungen-liste");
+  const liste = box.querySelector(".loesungen-liste:not(.loesungen-gruen)");
   if (!auf || !liste) return;
   const t = auf.querySelector(".loesungen-auf-text");
   if (t) t.textContent = text;
@@ -1333,6 +1661,13 @@ export function loesungenEinklappen(bereich) {
   if (!bereich || typeof bereich.querySelectorAll !== "function") return;
   Array.prototype.forEach.call(bereich.querySelectorAll(".blk-causes"), function (box) {
     if (box.hidden) return;
+    // Offene grüne Karten (mit Fragebaum) gehören bei einer älteren Antwort mit hinter die Zeile.
+    const gruen = box.querySelector(".loesungen-gruen");
+    const liste = box.querySelector(".loesungen-liste:not(.loesungen-gruen)");
+    if (gruen && liste) {
+      while (gruen.lastChild) liste.insertBefore(gruen.lastChild, liste.firstChild);
+      gruen.remove();
+    }
     const n = parseInt(box.getAttribute("data-anzahl") || "0", 10) || 0;
     loesungenZuklappen(box, (n === 1 ? "Lösung" : "Lösungen") + " von vorhin" + (n ? " (" + n + ")" : ""));
   });
@@ -1450,23 +1785,69 @@ function uebergabeText(b) {
   return zeilen.join("\n");
 }
 
-function kopieren(text) {
-  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
-  return new Promise(function (aufloesen, ablehnen) {
-    const feld = h("textarea", { readonly: true, class: "sr-only" });
-    feld.value = text;
-    document.body.appendChild(feld);
-    feld.select();
-    let ok = false;
-    try {
-      ok = document.execCommand("copy");
-    } catch (e) {
-      ok = false;
-    }
-    document.body.removeChild(feld);
-    if (ok) aufloesen();
-    else ablehnen(new Error("Kopieren nicht möglich"));
-  });
+/**
+ * A1 „Notiz fürs Ticket“ (SPEC 14.9): 4–5 Zeilen Klartext für Zendesk, gebaut
+ * nur aus dem, was auf dem Schirm steht (app.js sammelt, hier wird gesetzt –
+ * Muster wie uebergabeText). Leere Zeilen fallen weg.
+ *   n = { anlage_id, kunde, adresse, anliegen, wiederholung, geprueft, ergebnis, quellen: [] }
+ *   → „A-1042 · Familie Petersen, Lindenstraße 14, Neumünster
+ *      Anliegen: Wärmepumpe – Druck zu niedrig (F.022) · kommt wieder: 3× in 34 Tagen
+ *      Geprüft: Ventil trocken · Vordruck nie geprüft
+ *      Ergebnis: Lösung 1 „Vordruck am Ausdehnungsgefäß prüfen“ – hat geklappt
+ *      Quellen: MN-07, Vaillant S. 39, 41“
+ */
+export function notizText(n) {
+  const d = n || {};
+  const glatt = function (t) {
+    return t ? ohneMarkdown(String(t)).replace(/\s+/g, " ").trim() : "";
+  };
+  const verbinde = function (teile, trenner) {
+    return teile.map(glatt).filter(Boolean).join(trenner);
+  };
+  const anliegen = verbinde([d.anliegen, d.wiederholung ? "kommt wieder: " + d.wiederholung : ""], " · ");
+  const quellen = Array.isArray(d.quellen) ? verbinde(d.quellen, ", ") : "";
+  return [
+    verbinde([d.anlage_id, verbinde([d.kunde, d.adresse], ", ")], " · "),
+    anliegen ? "Anliegen: " + anliegen : "",
+    glatt(d.geprueft) ? "Geprüft: " + glatt(d.geprueft) : "",
+    glatt(d.ergebnis) ? "Ergebnis: " + glatt(d.ergebnis) : "",
+    quellen ? "Quellen: " + quellen : "",
+  ].filter(Boolean).join("\n");
+}
+
+/**
+ * Text in die Zwischenablage. Lehnt die Clipboard-API ab (kein Fokus, keine
+ * Berechtigung), versucht es der alte Weg über ein unsichtbares Feld.
+ */
+export function kopieren(text) {
+  const altmodisch = function () {
+    return new Promise(function (aufloesen, ablehnen) {
+      const vorher = document.activeElement;
+      const feld = h("textarea", { readonly: true, class: "sr-only" });
+      feld.value = text;
+      document.body.appendChild(feld);
+      feld.select();
+      let ok = false;
+      try {
+        ok = document.execCommand("copy");
+      } catch (e) {
+        ok = false;
+      }
+      document.body.removeChild(feld);
+      // Der Fokus bleibt am Knopf, der kopiert hat (Tastatur).
+      if (vorher && vorher !== document.body && typeof vorher.focus === "function") {
+        try {
+          vorher.focus({ preventScroll: true });
+        } catch (e) {
+          // ohne Fokus
+        }
+      }
+      if (ok) aufloesen();
+      else ablehnen(new Error("Kopieren nicht möglich"));
+    });
+  };
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text).then(null, altmodisch);
+  return altmodisch();
 }
 
 /** Eine Aktion ausführen (App: api.aktion) – liefert die Bestätigung oder wirft. */
@@ -1958,10 +2339,25 @@ function antwortFuss(antwort, ctx) {
 
 const SICHERHEIT = { hoch: "gut", mittel: "neutral", niedrig: "achtung" };
 
+/** Hat der Fragebaum der Antwort Richtungen (14.10.3)? Sonst färbt der Pfad nichts. */
+function baumMitRichtung(bloecke) {
+  return bloecke.some(function (b) {
+    return b && b.type === "fragebaum" && Array.isArray(b.knoten) && b.knoten.some(function (k) {
+      return k && Array.isArray(k.antworten) && k.antworten.some(function (a) { return a && (a.richtung === "gut" || a.richtung === "schlecht" || a.richtung === "offen"); });
+    });
+  });
+}
+
 /**
  * Ganze Antwort: alle Blöcke in Server-Reihenfolge (Stopp zuerst), darunter
- * die Fußzeile „Woher?“ (App). Keine Kopfzeile „Assistent“, keine Pillen –
- * Level und Sicherheit stehen nur auf der Prüfseite (ohne akteDaneben).
+ * die Fußzeile „Woher?“ (App). Keine Kopfzeile „Assistent“ – Level und
+ * Sicherheit stehen nur auf der Prüfseite (ohne akteDaneben).
+ *
+ * Ampel (14.10.5): Die Lage (antwort.lage) steht als Pille am Kopf der Antwort
+ * und färbt einen dezenten Rand links (data-lage). Hat die Antwort einen
+ * Fragebaum mit Richtungen, folgt die Pille dem Pfad beim Klicken – nie besser
+ * als der Server. ctx.onLage(lage) erfährt jede Änderung (App: Kopf der
+ * rechten Zone).
  */
 export function renderAntwort(antwort, ctx) {
   const wurzelEl = h("div", { class: "b-antwort antwort-bloecke antwort" });
@@ -1973,14 +2369,43 @@ export function renderAntwort(antwort, ctx) {
   const c = ctx || {};
   if (c.pfad) wurzelEl.setAttribute("data-pfad", String(c.pfad));
 
+  const alleBloecke = Array.isArray(antwort.blocks) ? antwort.blocks : [];
+  const serverLage = c.pfad === "vorab" ? null : lageVon(antwort);
+  const mitPfad = c.pfad !== "vorab" && baumMitRichtung(alleBloecke);
+  let lageEl = null;
+  if (serverLage || mitPfad) {
+    lageEl = lagePille(serverLage || RICHTUNG_LAGE.offen, "lage-antwort");
+    if (!serverLage) lageSetzen(lageEl, null);
+  }
+  // Weniger Text (Mike): Sagt schon eine Karte dieser Antwort dasselbe – die
+  // Stopp-Karte „Stopp“, die grüne Karte „Am Telefon lösbar“, die Übergabe „Für
+  // den Techniker“ –, steht die Pille nicht noch einmal darüber (nur in der App;
+  // der Rand links und die Pille im Kopf der rechten Zone bleiben).
+  // Grün: Die grüne Karte steht immer offen da – auch mit Fragebaum (Gegenprüfung 12.10.).
+  const sagtKarte = {
+    rot: alleBloecke.some(istStopp),
+    gruen: hatGrueneLoesung(antwort),
+    gelb: alleBloecke.some(function (b) { return b && b.type === "handover"; }),
+  };
+  const lageZeigen = function (lage) {
+    lageSetzen(lageEl, lage);
+    if (lageEl) lageEl.classList.toggle("lage-doppelt", !!(c.akteDaneben && lage && serverLage && lage.farbe === serverLage.farbe && sagtKarte[lage.farbe]));
+    if (lage) wurzelEl.setAttribute("data-lage", lage.farbe);
+    else wurzelEl.removeAttribute("data-lage");
+  };
+  if (lageEl) lageZeigen(serverLage);
+
   if (!c.akteDaneben && c.pfad !== "vorab") {
-    // Prüfseite: Level und Sicherheit als kleine Diagnose-Zeile.
+    // Prüfseite: Level und Sicherheit als kleine Diagnose-Zeile, davor die Lage.
     const pillen = [];
+    if (lageEl) pillen.push(lageEl);
     const fest = !!(c.pfad && c.pfad !== "modell");
     if (fest) pillen.push(h("span", { class: "pille pille-neutral", text: "ohne Modell" }));
     if (antwort.level && !fest) pillen.push(h("span", { class: "pille pille-neutral", text: "Level " + antwort.level }));
     if (antwort.confidence && !fest) pillen.push(h("span", { class: "pille pille-" + (SICHERHEIT[antwort.confidence] || "neutral"), text: "Sicherheit " + antwort.confidence }));
     if (pillen.length) wurzelEl.appendChild(h("div", { class: "antwort-kopfzeile" }, h("div", { class: "antwort-pillen" }, pillen)));
+  } else if (lageEl) {
+    wurzelEl.appendChild(lageEl);
   }
 
   let bloecke = sortiere(Array.isArray(antwort.blocks) ? antwort.blocks : []);
@@ -2010,6 +2435,14 @@ export function renderAntwort(antwort, ctx) {
     // Akinator: erst die Fragen. Bringt eine Antwort Fragebaum UND Lösungen
     // (Regeltreffer, „woran liegt es?“), liegen die Lösungen zu (nur App).
     loesungenZu: !!(mitBaum && c.akteDaneben && c.pfad !== "vorab"),
+    // Neben einer Stopp-Box wird nichts grün (14.10.3 Punkt 2).
+    mitStopp: alleBloecke.some(istStopp),
+    // Fragebaum → Pille: der Pfad färbt mit, der Server deckelt.
+    lagePfad: mitPfad && lageEl ? function (pfad) {
+      const lage = lageKombiniert(serverLage, pfad);
+      lageZeigen(lage);
+      if (typeof c.onLage === "function") c.onLage(lage);
+    } : null,
   });
   let i = 0;
   for (const b of bloecke) {

@@ -40,14 +40,21 @@ import {
   loesungenEinklappen,
   KOMPONENTEN,
   KOMPONENTEN_IKON,
+  kopieren,
+  lagePille,
+  lageSetzen,
+  lageVon,
   MASSNAHME_ART,
+  notizText,
   QUELLEN_ARTEN,
   QUELLEN_IKON,
+  quelleKurz,
   quellenDerAntwort,
   renderAntwort,
   renderBlock,
   ROLLEN_NAMEN,
   ROLLEN_RANG,
+  SYMPTOM_KATEGORIEN,
 } from "./bloecke.js";
 
 // --- Feste Texte -----------------------------------------------------------------
@@ -1398,7 +1405,8 @@ function akteBauen() {
     "aria-label": z.kopfkarteAuf ? "Akte zuklappen" : "Akte aufklappen",
     onclick: function () { kopfkarteUmschalten(); },
   }, ikon("runter", { groesse: 18 }));
-  const strasse = [adr.strasse, adr.hausnummer].filter(Boolean).join(" ");
+  // Hausnummer nie allein in der nächsten Zeile („Kastanienallee⏎8“): geschütztes Leerzeichen.
+  const strasse = [adr.strasse, adr.hausnummer].filter(Boolean).join("\u00A0");
   // „Nächster Kunde“ ist am Telefon die häufigste Handlung nach jedem
   // Gespräch – deshalb oben neben dem Namen, für jede Rolle an derselben
   // Stelle, am Handy in der Kopfkarte (Gegenprüfung 09.10.; vorher ein kleiner
@@ -1500,13 +1508,16 @@ function akteBauen() {
 function akteUnten(r, tickets) {
   const id = anzeigeId();
   const offenesTicket = (tickets || []).filter(function (t) { return t.status !== "geschlossen"; })[0];
-  if (!r.einsatz) return null;
+  // „Notiz fürs Ticket“ (SPEC 14.9, A1) für jede Rolle; „Einsatz dokumentieren“ nur mit Recht.
   return h("div", { class: "akte-unten" },
-    h("button", { type: "button", class: "knopf-e knopf-e-rand", id: "akte-einsatz", onclick: function () {
-      const param = { anlage: id };
-      if (offenesTicket) param.ticket = offenesTicket.id;
-      navigiere("#/abgeben/einsatz", param);
-    } }, "Einsatz dokumentieren"));
+    r.einsatz
+      ? h("button", { type: "button", class: "knopf-e knopf-e-rand", id: "akte-einsatz", onclick: function () {
+        const param = { anlage: id };
+        if (offenesTicket) param.ticket = offenesTicket.id;
+        navigiere("#/abgeben/einsatz", param);
+      } }, "Einsatz dokumentieren")
+      : null,
+    notizKnopf("notiz-akte"));
 }
 
 /** „Mehr zur Anlage“: was ein Techniker braucht, der Anrufer nicht (eingeklappt). */
@@ -1735,6 +1746,42 @@ function letztesDatum(g, a) {
 
 const WICHTIG_IKON = { stopp: "stopp", wiederholung: "wiederholung", wiedervorlage: "kalender", regel: "achtung" };
 
+// --- Ampel im Kopf der rechten Zone (SPEC 14.10.5) ------------------------------------------
+
+/**
+ * Lage der jüngsten Antwort des Falls, der links steht: was der Server sagt
+ * bzw. – nach einem Klick im Fragebaum – was die Pille dieser Antwort gerade
+ * zeigt. Läuft eine neue Antwort noch, gilt die vorige weiter.
+ */
+function lageJetzt() {
+  if (!routeHatChat()) return null;
+  const fallId = anzeigeId() || null;
+  // Gegenprüfung 12.10.: Steht ein Stopp aus diesem Fall in „Wichtig“, bleibt der Kopf rot –
+  // sonst sprang er bei T5 nach der Rückfrage auf Gelb, und ein Laie las das als Besserung.
+  if (fallId && wichtigEintraege().some(function (e) { return e.art === "stopp"; })) return { farbe: "rot", text: "Stopp" };
+  for (let i = z.runden.length - 1; i >= 0; i--) {
+    const r = z.runden[i];
+    if ((r.fallId || null) !== fallId || !r.antwort) continue;
+    return r.lageLiveGesetzt ? r.lageLive : lageVon(r.antwort);
+  }
+  return null;
+}
+
+/** Nur die Pille im Kopf (Farbe gleitet, die Chips bleiben stehen). */
+function lageKopfNeu() {
+  const el = $("lage-kopf");
+  if (!el) return;
+  lageSetzen(el, lageJetzt());
+  zoneKopfZeigen();
+}
+
+function zoneKopfZeigen() {
+  const kopf = $("zone-kopf");
+  const lage = $("lage-kopf");
+  const leiste = $("wichtig");
+  if (kopf) kopf.hidden = !!(lage && lage.hidden) && !!(leiste && leiste.hidden);
+}
+
 function wichtigNeu() {
   const leiste = $("wichtig");
   if (!leiste) return;
@@ -1742,6 +1789,7 @@ function wichtigNeu() {
   const alt = Array.prototype.map.call(leiste.querySelectorAll(".wichtig-chip"), function (c) { return c.getAttribute("data-art") + c.textContent; });
   leeren(leiste);
   leiste.hidden = !eintraege.length;
+  lageKopfNeu();
   if (!eintraege.length) return;
   leiste.appendChild(h("span", { class: "wichtig-marke", text: "Wichtig" }));
   const zeigen = z.wichtigAlle ? eintraege : eintraege.slice(0, 2);
@@ -1799,8 +1847,16 @@ function arbeitBauen() {
   const senden = h("button", { type: "submit", class: "rund senden", id: "frage-senden", "aria-label": "Senden" }, ikon("senden", { groesse: 20, strich: 2.2 }));
   const form = h("form", { class: "eingabe", id: "eingabe", novalidate: true },
     h("div", { class: "eingabe-feld" }, feld, mikro, senden));
+  // Kopf der rechten Zone: die Lage der jüngsten Antwort (Ampel, SPEC 14.10.5) –
+  // ohne Scrollen sichtbar – und daneben „Wichtig“.
+  const lageKopf = lagePille({ farbe: "grau", text: "" }, "lage-kopf");
+  lageKopf.id = "lage-kopf";
+  lageKopf.setAttribute("aria-live", "polite");
+  lageSetzen(lageKopf, null);
   const betreuen = h("section", { class: "rechts-chat", id: "rechts-chat", "aria-label": "Chat" },
-    h("div", { class: "wichtig", id: "wichtig", role: "region", "aria-label": "Wichtig", hidden: true }),
+    h("div", { class: "zone-kopf", id: "zone-kopf", hidden: true },
+      lageKopf,
+      h("div", { class: "wichtig", id: "wichtig", role: "region", "aria-label": "Wichtig", hidden: true })),
     h("div", { class: "verlauf-chat", id: "verlauf" }, h("div", { class: "verlauf-innen", id: "chat-innen" }, leer)),
     form);
   const bildschirm = h("section", { class: "rechts-bildschirm", id: "rechts-bildschirm", hidden: true });
@@ -1927,7 +1983,7 @@ function ueberholteBaeumeEntfernen() {
  * ist (Doppel-Senden, auch über Fragebaum und Auswahl). Sonst true; der
  * Ablauf läuft asynchron weiter – die Anfrage startet sofort.
  */
-function sende(text) {
+function sende(text, zusatz) {
   const t = String(text || "").trim();
   if (!t || z.laeuft || !z.sitzung) return false;
   if (z.blatt) z.blatt.schliessen(true);
@@ -1936,7 +1992,7 @@ function sende(text) {
   z.fallVorab = null;
   z.suchen = false;
   setzeLaeuft(true);
-  runde(t).then(null, function (e) {
+  runde(t, zusatz).then(null, function (e) {
     console.error("Unerwarteter Fehler im Ablauf:", e);
   }).then(function () {
     setzeLaeuft(false);
@@ -1946,6 +2002,7 @@ function sende(text) {
       akteFolgen();
     }
     wichtigNeu();
+    notizFussSetzen();
   });
   return true;
 }
@@ -2023,6 +2080,14 @@ function antwortCtx(r, bloecke) {
     },
     onAktion: function (item) {
       return api.aktion(item.action, item.payload || {}).then(function (ergebnis) {
+        // Für die „Notiz fürs Ticket“ (SPEC 14.9): was in diesem Fall passiert ist.
+        if (r && item.action === "ergebnis") {
+          const p = item.payload || {};
+          // am_telefon: auf einer grünen Karte geklappt (SPEC 14.10.5) → „am Telefon gelöst“.
+          r.ergebnis = { art: "geklappt", nr: p.loesung_nr, titel: item.titel || "", quellen: p.source_ids || [], amTelefon: p.am_telefon === true, runde: r, zeit: Date.now() };
+          return ergebnis && ergebnis.bestaetigung ? ergebnis.bestaetigung : null; // ändert die Akte nicht
+        }
+        if (r && item.action === "create_handover") r.uebergeben = { art: "techniker", zeit: Date.now() };
         // Nach jeder erfolgreichen Aktion die Akte neu (SPEC 12.6) – kein
         // Polling –, dazu die Anlagenliste („· 1 offen“ in Suche und Auswahl).
         if (z.akteId) akteLaden(z.akteId, true);
@@ -2030,8 +2095,19 @@ function antwortCtx(r, bloecke) {
         return ergebnis && ergebnis.bestaetigung ? ergebnis.bestaetigung : null;
       });
     },
-    onAntworten: function (text) {
-      return sende(text);
+    onAntworten: function (text, zusatz) {
+      return sende(text, zusatz);
+    },
+    // Ampel (SPEC 14.10.5): Klick im Fragebaum färbt die Pille der Antwort – und den Kopf.
+    onLage: function (lage) {
+      if (!r) return;
+      r.lageLive = lage || null;
+      r.lageLiveGesetzt = true;
+      lageKopfNeu();
+    },
+    // „Hat geklappt“ schickt die Anlage des Falls mit (SPEC 14.9).
+    fallAnlage: function () {
+      return r && r.fallId ? r.fallId : anzeigeId();
     },
     ladeBild: api.ladeBild,
     ladeSeitenbild: api.ladeSeitenbild,
@@ -2066,11 +2142,15 @@ function antwortCtx(r, bloecke) {
 }
 
 /** Eine Runde: Frage → (Vorab) → Antwort oder Fehler. */
-async function runde(text) {
+async function runde(text, zusatz) {
   const innen = $("chat-innen");
   const r = {
     id: "runde-" + (Date.now().toString(36)),
     frage: text,
+    // Pfad des Fragebaums („Ventil trocken · Vordruck nie geprüft“) für die Notiz (SPEC 14.9).
+    geprueft: zusatz && zusatz.geprueft ? String(zusatz.geprueft) : "",
+    ergebnis: null,
+    uebergeben: null,
     start: Date.now(),
     schritte: [],
     vorab: null,
@@ -2182,6 +2262,7 @@ async function runde(text) {
         });
         if (anker) ankerHalten(antwortEl, anker);
         else if (!nutzerScrollt) zumAnfang(rundeEl);
+        notizFussSetzen();
       };
       if (vorabTypen.length && !ruhig()) {
         animiereUndWarte(vorabEl, [{ opacity: 1 }, { opacity: 0 }], { duration: 200, easing: EASE }).then(tauschen);
@@ -2213,6 +2294,203 @@ async function runde(text) {
   if (schaut.parentNode && !r.fertig && !r.fehler) schaut.parentNode.removeChild(schaut);
   verlauf.removeEventListener("wheel", merke);
   verlauf.removeEventListener("touchmove", merke);
+}
+
+// --- Notiz fürs Ticket (SPEC 14.9, A1) ---------------------------------------------------
+// „Das kopieren Ihre Leute heute mit einem Klick in Zendesk.“ 4–5 Zeilen Klartext,
+// gebaut nur aus dem, was auf dem Schirm steht: Akte, „Kommt wieder“, Pfad des
+// Fragebaums, Lösungskarten und ihr Ergebnis, Quellen. Kein Server, keine KI.
+
+/** Runden eines Falls (Standard: der links steht) mit Antwort – älteste zuerst. */
+function fallRunden(fallId) {
+  const id = fallId || anzeigeId();
+  if (!id) return [];
+  return z.runden.filter(function (r) { return r.fallId === id && r.antwort && Array.isArray(r.antwort.blocks); });
+}
+
+function bloeckeVom(r, typ) {
+  return r.antwort.blocks.filter(function (b) { return b && b.type === typ; });
+}
+
+/** Die offene Lösungskarte der jüngsten Lösungen – nur, wenn sie zu sehen sind. */
+function offeneLoesung(runden) {
+  for (let i = runden.length - 1; i >= 0; i--) {
+    const r = runden[i];
+    const c = bloeckeVom(r, "causes").filter(function (b) { return Array.isArray(b.items) && b.items.length; })[0];
+    if (!c) continue;
+    const box = r.el ? r.el.querySelector(".blk-causes") : null;
+    if (!box || box.hidden) return null;
+    // Grüne Karten können in einer eigenen, offenen Liste vor den zugeklappten stehen (14.10.5).
+    const karten = Array.prototype.slice.call(box.querySelectorAll(".loesung"));
+    let n = -1;
+    karten.forEach(function (k, j) {
+      const liste = k.closest(".loesungen-liste");
+      if (n < 0 && k.classList.contains("ist-offen") && !(liste && liste.hidden)) n = j;
+    });
+    if (n < 0 || !c.items[n]) return null;
+    return { nr: n + 1, titel: String(c.items[n].title || ""), quellen: c.items[n].source_ids || [], runde: r };
+  }
+  return null;
+}
+
+/** „Wärmepumpe – Druck zu niedrig (F.022)“ und „3× in 34 Tagen“ – aus Lösungen, Akte und Übergabe. */
+function anliegenVon(a, runden) {
+  const tickets = (a && Array.isArray(a.tickets) ? a.tickets.slice() : []).sort(function (x, y) {
+    return String(y.erstellt_am).localeCompare(String(x.erstellt_am));
+  });
+  const gruppen = (a && Array.isArray(a.gruppen) ? a.gruppen : []).filter(function (g) { return g && g.wiederholung; });
+  let kat = "";
+  for (let i = runden.length - 1; i >= 0 && !kat; i--) {
+    const c = bloeckeVom(runden[i], "causes").filter(function (b) { return b.symptom_kategorie; })[0];
+    if (c) kat = String(c.symptom_kategorie);
+  }
+  if (!kat) {
+    const offen = tickets.filter(function (t) { return t.status !== "geschlossen" && t.symptom_kategorie; })[0];
+    if (offen) kat = String(offen.symptom_kategorie);
+  }
+  if (!kat && gruppen.length) {
+    kat = String(gruppen.slice().sort(function (x, y) {
+      return String(letztesDatum(y, a)).localeCompare(String(letztesDatum(x, a)));
+    })[0].symptom_kategorie || "");
+  }
+  if (!kat) return { anliegen: "", wiederholung: "" };
+
+  // Gerät in Kundensprache: das Hauptgerät des Tickets, sonst das Hauptgerät, an dem der
+  // Chip steht („Sicherung fliegt“ → Wallbox, nicht Stromkreis), sonst der Gerätetyp.
+  const zuKat = tickets.filter(function (t) { return t.symptom_kategorie === kat; });
+  const typ = zuKat.map(function (t) { return t.geraetetyp; }).filter(Boolean)[0];
+  let geraet = typ && HAUPTGERAETE[typ] ? HAUPTGERAETE[typ] : "";
+  let problem = "";
+  (a && Array.isArray(a.komponenten) ? a.komponenten : []).forEach(function (k) {
+    (k && Array.isArray(k.vorschlaege) ? k.vorschlaege : []).forEach(function (v) {
+      if (!v || v.art !== "symptom" || v.schluessel !== kat) return;
+      if (!problem) problem = String(v.chip || "");
+      if (!geraet && HAUPTGERAETE[k.typ]) geraet = HAUPTGERAETE[k.typ];
+    });
+  });
+  if (!geraet && typ) geraet = KOMPONENTEN[typ] || "";
+  if (!problem) {
+    const kurz = KATEGORIE_KURZ[kat] || SYMPTOM_KATEGORIEN[kat] || "";
+    problem = geraet && kurz.indexOf(": ") > 0 ? kurz.slice(kurz.indexOf(": ") + 2) : kurz;
+  }
+  // Code: aus der Übergabe auf dem Schirm, sonst aus den Tickets dieses Fehlerbilds.
+  const codes = [];
+  const nimm = function (c) {
+    const t = String(c || "").trim();
+    if (t && codes.indexOf(t) === -1 && codes.length < 2) codes.push(t);
+  };
+  for (let i = runden.length - 1; i >= 0 && !codes.length; i--) {
+    bloeckeVom(runden[i], "handover").forEach(function (b) { (Array.isArray(b.codes) ? b.codes : []).forEach(nimm); });
+  }
+  if (!codes.length) zuKat.forEach(function (t) { nimm(t.fehlercode); });
+  const was = geraet && problem ? geraet + " – " + problem : geraet || problem;
+  const g = gruppen.filter(function (x) { return x.symptom_kategorie === kat; })[0];
+  const n = g && Array.isArray(g.ticket_ids) ? g.ticket_ids.length : 0;
+  return {
+    anliegen: was + (codes.length ? " (" + codes.join(", ") + ")" : ""),
+    wiederholung: n && typeof g.window_days === "number" ? n + "× in " + g.window_days + " Tagen" : "",
+  };
+}
+
+/** Quellen der gewählten Lösung (sonst der jüngsten Antwort): „MN-07“, „Vaillant S. 39, 41“. */
+function notizQuellen(runden, gewaehlt) {
+  let r = gewaehlt ? gewaehlt.runde : null;
+  if (!r) {
+    for (let i = runden.length - 1; i >= 0 && !r; i--) if (quellenDerAntwort(runden[i].antwort).length) r = runden[i];
+  }
+  if (!r) return [];
+  const alle = quellenDerAntwort(r.antwort);
+  const ids = gewaehlt && Array.isArray(gewaehlt.quellen) ? gewaehlt.quellen.map(String) : [];
+  const eigene = alle.filter(function (q) { return ids.indexOf(String(q.id)) !== -1; });
+  return gruppiereQuellen(eigene.length ? eigene : alle).map(function (g) {
+    return g.q && (g.q.kind === "meister_notiz" || g.q.kind === "ticket") ? String(g.q.id) : quelleKurz(g);
+  });
+}
+
+/** Alles für notizText() – nur, was auf dem Schirm steht (Fall: Standard die Akte links). */
+function notizDaten(fallId) {
+  const id = fallId || anzeigeId();
+  const a = z.akte && z.akteId === id ? z.akte : null;
+  const eintrag = listeEintrag(id);
+  const anlage = a && a.anlage ? a.anlage : { id: id, kunde_alias: id === anzeigeId() ? anzeigeName() : eintrag ? eintrag.kunde_alias : "" };
+  const adr = adresseVon(anlage);
+  const runden = fallRunden(id);
+  const anliegen = anliegenVon(a, runden);
+  let geprueft = "";
+  runden.forEach(function (r) { if (r.geprueft) geprueft = r.geprueft; });
+  let letztes = null;
+  runden.forEach(function (r) {
+    [r.ergebnis, r.uebergeben].forEach(function (e) {
+      if (e && (!letztes || e.zeit >= letztes.zeit)) letztes = e;
+    });
+  });
+  const gewaehlt = letztes && letztes.art === "geklappt" ? letztes : offeneLoesung(runden);
+  const loesung = gewaehlt && gewaehlt.nr ? "Lösung " + gewaehlt.nr + (gewaehlt.titel ? " „" + gewaehlt.titel + "“" : "") : "";
+  let ergebnis = "";
+  // Grüne Karte (SPEC 14.10.5): „Ergebnis: am Telefon gelöst – {Titel}“.
+  if (letztes && letztes.art === "geklappt" && letztes.amTelefon) ergebnis = "am Telefon gelöst" + (gewaehlt.titel ? " – " + gewaehlt.titel : "");
+  else if (letztes && letztes.art === "geklappt") ergebnis = loesung + " – hat geklappt";
+  else if (letztes && letztes.art === "techniker") ergebnis = (loesung ? loesung + " – " : "") + "Techniker nötig";
+  else if (loesung) ergebnis = loesung + " – offen";
+  return {
+    anlage_id: anlage.id || id || "",
+    kunde: anlage.kunde_alias || "",
+    adresse: [[adr.strasse, adr.hausnummer].filter(Boolean).join(" "), adr.ort].filter(Boolean).join(", "),
+    anliegen: anliegen.anliegen,
+    wiederholung: anliegen.wiederholung,
+    geprueft: geprueft,
+    ergebnis: ergebnis,
+    quellen: notizQuellen(runden, gewaehlt),
+  };
+}
+
+/** Ansage für Screenreader, ohne sichtbaren Toast. */
+function ansagen(text) {
+  let el = $("ansage");
+  if (!el) {
+    el = h("div", { id: "ansage", class: "sr-only", role: "status", "aria-live": "polite" });
+    document.body.appendChild(el);
+  }
+  el.textContent = "";
+  window.setTimeout(function () { el.textContent = text; }, 60);
+}
+
+/** Leiser Knopf „Notiz fürs Ticket“ – kopiert, Bestätigung kurz „Kopiert“. fallId: der Fall der Antwort. */
+function notizKnopf(klasse, fallId) {
+  const symbol = h("span", { class: "notiz-symbol", "aria-hidden": "true" }, ikon("kopieren", { groesse: 14 }));
+  const text = h("span", { class: "notiz-text", text: "Notiz fürs Ticket" });
+  const knopf = h("button", { type: "button", class: "knopf-leise-e notiz-knopf " + klasse, title: "4–5 Zeilen für das Ticket kopieren" }, symbol, text);
+  let uhr = 0;
+  knopf.addEventListener("click", function () {
+    kopieren(notizText(notizDaten(fallId))).then(function () {
+      leeren(symbol).appendChild(ikon("haken", { groesse: 14, strich: 2.2 }));
+      text.textContent = "Kopiert";
+      knopf.classList.add("ist-kopiert");
+      ansagen("Kopiert");
+      window.clearTimeout(uhr);
+      uhr = window.setTimeout(function () {
+        leeren(symbol).appendChild(ikon("kopieren", { groesse: 14 }));
+        text.textContent = "Notiz fürs Ticket";
+        knopf.classList.remove("ist-kopiert");
+      }, 2000);
+    }, function () {
+      toast("Kopieren nicht möglich.", "fehler");
+    });
+  });
+  return knopf;
+}
+
+/** Der Knopf steht unter der LETZTEN Antwort des Falls (Fußzeile neben „Woher?“) – nur dort. */
+function notizFussSetzen() {
+  Array.prototype.forEach.call(document.querySelectorAll("#chat-innen .notiz-fuss"), function (k) {
+    if (k.parentNode) k.parentNode.removeChild(k);
+  });
+  const runden = fallRunden();
+  const r = runden[runden.length - 1];
+  const fuss = r && r.el ? r.el.querySelector(".antwort-fuss") : null;
+  if (!fuss) return;
+  const woher = fuss.querySelector(".woher");
+  fuss.insertBefore(notizKnopf("notiz-fuss", r.fallId), woher ? woher.nextSibling : fuss.firstChild);
 }
 
 /**

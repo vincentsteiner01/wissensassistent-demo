@@ -319,6 +319,9 @@ body { overflow-x: hidden; }
 .akte-name { font: var(--gewicht-fett) var(--gr-6)/1.15 var(--schrift-serif); letter-spacing: -.01em; }
 .akte-adresse { margin-top: var(--a-3); font-size: var(--gr-5); line-height: 1.3; }
 .akte-adresse > span { display: block; }
+/* Straße und Hausnummer mit geschütztem Leerzeichen (app.js) – und nicht mitten im Wort trennen:
+   „Kastanienallee 8“ ragt lieber ein Stück in den freien Raum neben dem Knopf als „8“ allein unten. */
+.akte-adresse .str { overflow-wrap: normal; }
 .akte-adresse .ort { color: var(--text-2); font-size: var(--gr-4); }
 .akte-id { margin-top: var(--a-2); color: var(--text-3); font-size: var(--gr-2); }
 .akte-kopf-knoepfe { display: flex; align-items: center; gap: var(--a-2); flex-shrink: 0; }
@@ -481,16 +484,30 @@ body { overflow-x: hidden; }
 .treffer-leer { padding: 12px; color: var(--text-3); font-size: var(--gr-3); }
 .suche-zurueck { margin-top: var(--a-3); }
 
-/* ----------------------------------------------------------------- Wichtig */
-.wichtig {
+/* ------------------------------------------------- Kopf der rechten Zone
+   Lage der jüngsten Antwort (Ampel, SPEC 14.10.5) + „Wichtig“ in einer Zeile. */
+.zone-kopf {
   flex: none;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--a-2);
+  gap: var(--a-2) var(--a-3);
   width: 100%;
   max-width: var(--chat-max);
   margin: 0 auto var(--a-3);
+}
+.lage-kopf { min-height: 36px; padding: 6px 14px 6px 12px; font-size: var(--gr-3); }
+.lage-kopf .lage-punkt { width: 10px; height: 10px; }
+
+/* ----------------------------------------------------------------- Wichtig */
+.wichtig {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--a-2);
+  min-width: 0;
+  max-width: 100%;
 }
 .wichtig-marke { margin-right: 2px; font-size: var(--gr-1); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
 .wichtig-chip {
@@ -683,6 +700,20 @@ body { overflow-x: hidden; }
 
 /* --------------------------------------------------------------- Blöcke */
 .antwort { display: flex; flex-direction: column; gap: var(--a-3); min-width: 0; }
+/* Ampel (SPEC 14.10.5): dezenter farbiger Rand links an der Antwort + Pille am Kopf.
+   Nur die Farbe gleitet (border-color), nie Breite oder Abstand. */
+.antwort[data-lage] {
+  --lage-rand: var(--ampel-grau);
+  padding-left: 14px;
+  border-left: 3px solid var(--lage-rand);
+  transition: border-color var(--dauer-2) var(--ease);
+}
+.antwort[data-lage="gruen"] { --lage-rand: var(--ampel-gruen); }
+.antwort[data-lage="gelb"] { --lage-rand: var(--ampel-gelb); }
+.antwort[data-lage="rot"] { --lage-rand: var(--ampel-rot); }
+.antwort[data-lage="grau"] { --lage-rand: var(--linie-stark); }
+.antwort > .lage-antwort { margin-bottom: calc(var(--a-1) * -1); }
+.antwort > .lage-antwort.lage-doppelt { display: none; }
 .blk { position: relative; min-width: 0; }
 .karte-e {
   background: var(--karte);
@@ -776,6 +807,12 @@ div.warn-zeile { cursor: default; }
   font-size: var(--gr-3);
 }
 .antwort-chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Richtung der gewählten Antwort (14.10.5): Punkt grün (gut) bzw. gelb (schlecht), offen ohne. */
+.antwort-chip-punkt { flex: none; width: 9px; height: 9px; margin-right: 2px; border-radius: 50%; }
+.antwort-chip.ist-gut { background: var(--ampel-gruen-flaeche); }
+.antwort-chip.ist-gut .antwort-chip-punkt { background: var(--ampel-gruen); }
+.antwort-chip.ist-schlecht { background: var(--ampel-gelb-flaeche); }
+.antwort-chip.ist-schlecht .antwort-chip-punkt { background: var(--ampel-gelb); }
 .antwort-chip-text strong { font-weight: var(--gewicht-fett); }
 .antwort-chip-aendern {
   flex: none;
@@ -866,6 +903,8 @@ div.warn-zeile { cursor: default; }
 }
 .loesungen-auf[hidden] { display: none; }
 .loesungen-auf:hover { color: var(--text); }
+.loesungen-auf.ist-telefon { color: var(--ampel-gruen-tinte); }
+.loesungen-auf .telefon-ikon { width: 22px; height: 22px; }
 .loesungen-auf-pfeil { transition: transform var(--dauer-1) var(--ease); }
 .loesungen-auf[aria-expanded="true"] .loesungen-auf-pfeil { transform: rotate(180deg); }
 .loesung {
@@ -918,6 +957,84 @@ div.warn-zeile { cursor: default; }
   font-weight: var(--gewicht-fett);
 }
 .weiter-knopf:hover { background: var(--marke-100); }
+/* „Hat geklappt“ (SPEC 14.9, A2): leise neben „Klappt nicht? …“, wird nach dem Klick
+   zu „Notiert – zählt in der Monatsauswertung“. */
+.loesung-knoepfe { display: flex; align-items: center; flex-wrap: wrap; gap: var(--a-2); margin-left: auto; }
+/* Eine Statuszeile darf den Knopf nie zusammendrücken („Hat / geklappt“): Knopf ohne Umbruch, Status darunter. */
+.geklappt { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
+.geklappt-knopf {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  min-height: 40px;
+  padding: 8px 14px 8px 12px;
+  border: 1px solid var(--linie);
+  border-radius: var(--r-voll);
+  background: var(--karte);
+  color: var(--text-2);
+  font-size: var(--gr-3);
+  font-weight: var(--gewicht-fett);
+}
+.geklappt-knopf:hover:not(:disabled) { border-color: var(--gut-linie); background: var(--gut-flaeche); color: var(--gut-tinte); }
+/* Auf der grünen Karte der Hauptknopf (14.10.5). */
+.geklappt-knopf.ist-haupt {
+  min-height: 44px;
+  padding: 10px 20px 10px 16px;
+  border-color: var(--ampel-gruen);
+  background: var(--ampel-gruen);
+  color: #FFFFFF;
+  font-size: var(--gr-4);
+}
+.geklappt-knopf.ist-haupt:hover:not(:disabled) { border-color: var(--ampel-gruen-knopf-hover); background: var(--ampel-gruen-knopf-hover); color: #FFFFFF; }
+
+/* Grüne Karte „Am Telefon lösbar“ (SPEC 14.10.5): grün getönt, offen, der Satz als Zitat. */
+.loesung.ist-telefon { border-color: var(--ampel-gruen-rand); background: var(--ampel-gruen-karte); box-shadow: inset 4px 0 0 var(--ampel-gruen); }
+.telefon-nr { font-weight: var(--gewicht-fett); }
+.loesungen-gruen + .loesungen-auf { margin-top: var(--a-2); }
+.telefon-marke { display: inline-flex; align-items: center; gap: 7px; margin-bottom: 4px; color: var(--ampel-gruen-tinte); letter-spacing: .04em; }
+.telefon-ikon { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--ampel-gruen); color: #FFFFFF; }
+.ist-telefon .loesung-pfeil { color: var(--ampel-gruen-tinte); }
+.telefon-sagen { font-size: var(--gr-2); font-weight: var(--gewicht-fett); color: var(--ampel-gruen-tinte); }
+.telefon-satz {
+  margin: 6px 0 0;
+  padding: 14px 18px;
+  border: 1px solid var(--ampel-gruen-rand);
+  border-radius: var(--r-l);
+  background: var(--ampel-gruen-satz);
+  color: var(--text);
+  font-size: 19px;
+  font-weight: var(--gewicht-mittel);
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+.telefon-zeile { display: flex; align-items: center; flex-wrap: wrap; gap: var(--a-1) var(--a-3); margin-top: var(--a-2); }
+.telefon-beleg { font-size: var(--gr-2); color: var(--text-2); }
+.telefon-warum-knopf {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  margin-left: auto;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--r-s);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--gr-3);
+  font-weight: var(--gewicht-fett);
+}
+.telefon-warum-knopf:hover { color: var(--text); }
+.telefon-warum-knopf.ist-auf .mehr-pfeil { transform: rotate(180deg); }
+.telefon-warum { margin-top: var(--a-2); padding-top: var(--a-2); border-top: 1px solid var(--ampel-gruen-linie); }
+.telefon-warum .loesung-wie { font-size: var(--gr-3); }
+.ist-telefon .loesung-fuss { justify-content: flex-start; }
+.ist-telefon .loesung-knoepfe { margin-left: 0; }
+.geklappt-knopf:disabled { opacity: .55; }
+.geklappt-status { font-size: var(--gr-3); color: var(--text-2); }
+.geklappt-status:empty { display: none; }
+.geklappt-status.ist-notiert { display: inline-flex; align-items: center; gap: 6px; color: var(--gut-tinte); font-weight: var(--gewicht-fett); }
 
 /* Bild ansehen */
 .bild-zeile {
@@ -1029,6 +1146,11 @@ div.warn-zeile { cursor: default; }
 }
 .quellenzeile:hover { color: var(--text); text-decoration: underline; }
 .fuss-ohne-ki { color: var(--text-3); }
+/* „Notiz fürs Ticket“ (SPEC 14.9, A1): leise, unter der letzten Antwort neben „Woher?“ und in der Akte. */
+.notiz-knopf { flex: none; }
+.notiz-symbol { display: inline-flex; }
+.notiz-knopf.ist-kopiert, .notiz-knopf.ist-kopiert:hover:not(:disabled) { color: var(--gut-tinte); }
+.antwort-fuss .notiz-knopf { min-height: 32px; padding: 5px 10px; }
 
 /* ------------------------------------------- Prüfseite: volle Fassungen */
 .antwort-kopfzeile { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -1259,7 +1381,7 @@ span.quellen-seite, span.quellen-link { color: var(--text); text-decoration: non
   .suche-titel { display: none; }
   .suchfeld { min-height: 48px; padding: 0 var(--a-3); gap: 6px; }
   .suchfeld-eingabe { font-size: 16px; }
-  .wichtig { margin-bottom: var(--a-2); }
+  .zone-kopf { margin-bottom: var(--a-2); }
   .leer-chat { padding-top: 6vh; }
   .leer-titel { font-size: var(--gr-6); }
   .blase { max-width: 88%; }
@@ -1306,4 +1428,10 @@ span.quellen-seite, span.quellen-link { color: var(--text); text-decoration: non
   .antwort-chip-aendern { min-height: 36px; }
   .baum-anders { min-height: 44px; }
   .baum-antworten .baum-anders { flex: 1 1 auto; justify-content: center; }
+  /* Ampel: schmalerer Rand-Abstand, Satz etwas kleiner, Hauptknopf über die Breite */
+  .antwort[data-lage] { padding-left: 10px; }
+  .telefon-satz { padding: 12px 14px; font-size: var(--gr-4); }
+  .ist-telefon .loesung-knoepfe { width: 100%; }
+  .geklappt-knopf.ist-haupt { flex: 1 1 auto; justify-content: center; }
+  .ist-telefon .geklappt { flex: 1 1 auto; }
 }

@@ -93,6 +93,36 @@
   --gut-linie: #BFDCC9;
   --gut-hell: #7FD39A;
 
+  /* --- Ampel (SPEC 14.10.1): eine Bedeutung je Farbe, überall gleich, nie
+     Markenfarbe. Grün = am Telefon lösbar / auf gutem Weg, Gelb = schlechter
+     oder unklarer, Rot = nur die Stopp-Regel, Grau = wird eingegrenzt.
+     Farbe nie allein: immer Punkt bzw. Symbol UND Wort (WCAG 1.4.1).
+     Kontraste nachgemessen (12.10.): Tinte auf Fläche ≥ 6,7:1, Punkt auf
+     Fläche ≥ 3,8:1, weiße Schrift auf --ampel-gruen 5,4:1, Satz auf der
+     grünen Karte 15:1. */
+  --ampel-gruen: #1E7A43;
+  --ampel-gruen-tinte: #14532D;
+  --ampel-gruen-flaeche: #EDF7F0;
+  --ampel-gruen-linie: #B9DEC6;
+  /* Gegenprüfung 12.10.: Die grüne Karte war auf dem Beamer weiß (Fläche 1,03:1).
+     Jetzt spürbar getönt, mit kräftigerem Rand und grünem Balken links. */
+  --ampel-gruen-karte: #E6F4EA;
+  --ampel-gruen-rand: #8CC5A1;
+  --ampel-gruen-satz: #F5FBF7;
+  --ampel-gruen-knopf-hover: #17663A;
+  --ampel-gelb: #B26A00;
+  --ampel-gelb-tinte: var(--achtung-tinte);
+  --ampel-gelb-flaeche: var(--achtung-flaeche);
+  --ampel-gelb-linie: var(--achtung-linie);
+  --ampel-rot: #C42B1C;
+  --ampel-rot-tinte: var(--stopp-tinte);
+  --ampel-rot-flaeche: var(--stopp-flaeche);
+  --ampel-rot-linie: var(--stopp-linie);
+  --ampel-grau: #7D796F;
+  --ampel-grau-tinte: var(--text-2);
+  --ampel-grau-flaeche: var(--karte-2);
+  --ampel-grau-linie: var(--linie);
+
   /* --- Schriftarten --- */
   --schrift: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
   --schrift-serif: ui-serif, "Iowan Old Style", Charter, Georgia, serif;
@@ -554,6 +584,47 @@ button.chip:hover, a.chip:hover { border-color: var(--marke-linie); background: 
 .pille-stopp { background: var(--stopp-flaeche); color: var(--stopp-tinte); border-color: var(--stopp-linie); }
 .pille-hinweis { background: var(--hinweis-flaeche); color: var(--hinweis-tinte); border-color: var(--hinweis-linie); }
 .pille-marke { background: var(--marke-flaeche); color: var(--marke-text); border-color: var(--marke-linie); }
+
+/* Ampel-Pille (SPEC 14.10.5): Punkt + Wort. Am Kopf jeder Antwort, im Kopf der
+   rechten Zone und auf der Prüfseite. Farbwechsel weich (nur Farbe, keine Maße);
+   bei reduzierter Bewegung sofort (Regel oben). */
+.lage {
+  --lage-punkt: var(--ampel-grau);
+  --lage-tinte: var(--ampel-grau-tinte);
+  --lage-flaeche: var(--ampel-grau-flaeche);
+  --lage-linie: var(--ampel-grau-linie);
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 7px;
+  max-width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 3px 12px 3px 10px;
+  border: 1px solid var(--lage-linie);
+  border-radius: var(--r-voll);
+  background: var(--lage-flaeche);
+  color: var(--lage-tinte);
+  font-size: var(--gr-2);
+  font-weight: var(--gewicht-fett);
+  line-height: 1.2;
+  white-space: nowrap;
+  transition: background-color var(--dauer-2) var(--ease), border-color var(--dauer-2) var(--ease), color var(--dauer-2) var(--ease);
+}
+.lage-punkt {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--lage-punkt);
+  transition: background-color var(--dauer-2) var(--ease);
+}
+.lage-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.lage-gruen { --lage-punkt: var(--ampel-gruen); --lage-tinte: var(--ampel-gruen-tinte); --lage-flaeche: var(--ampel-gruen-flaeche); --lage-linie: var(--ampel-gruen-linie); }
+.lage-gelb { --lage-punkt: var(--ampel-gelb); --lage-tinte: var(--ampel-gelb-tinte); --lage-flaeche: var(--ampel-gelb-flaeche); --lage-linie: var(--ampel-gelb-linie); }
+.lage-rot { --lage-punkt: var(--ampel-rot); --lage-tinte: var(--ampel-rot-tinte); --lage-flaeche: var(--ampel-rot-flaeche); --lage-linie: var(--ampel-rot-linie); }
+/* Rot ist Stopp: eckiger Punkt (Achteck-Anmutung), damit es auch ohne Farbe anders aussieht. */
+.lage-rot .lage-punkt { border-radius: 2px; }
 
 .tastenkappe {
   display: inline-flex;
